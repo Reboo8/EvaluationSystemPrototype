@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Globe, Mail, Upload, Send, Check } from 'lucide-react';
-import { useApp } from '../store.jsx';
+import { Globe, Mail, Upload, Send, Check, AlertTriangle } from 'lucide-react';
+import { useApp, fmtCr } from '../store.jsx';
+import { PendingChip } from '../components/admin/ui.jsx';
 
 export default function SendAssessment() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { getOpportunity, sendAssessment } = useApp();
+  const { getOpportunity, sendAssessment, clientCanStart, clientEstimate, clientWallet, rateCard } = useApp();
   const opp = getOpportunity(id);
 
   const [careerPage, setCareerPage] = useState(true);
@@ -19,6 +20,12 @@ export default function SendAssessment() {
 
   const emailCount = emails.split(/[\n,]/).map((e) => e.trim()).filter((e) => e.includes('@')).length;
   const total = emailCount + uploaded;
+  const resumeRate = (rateCard || []).find((r) => r.key === 'resume')?.credits || 0;
+  const projected = total || 12;
+  const cost = projected * resumeRate;
+  const gate = clientCanStart(cost);
+  const est = clientEstimate(opp);
+  const underfunded = gate.ok && clientWallet.available < est.total;
 
   const send = () => {
     // career-page-only send still seeds a demo batch of inbound applicants so the funnel moves
@@ -33,10 +40,15 @@ export default function SendAssessment() {
       <div className="card" style={{ padding: 36, textAlign: 'center' }}>
         <div className="avatar" style={{ width: 60, height: 60, background: '#DCFCE7', color: '#16A34A', margin: '0 auto 14px' }}><Check size={30} /></div>
         <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 6px' }}>Assessment sent 🎉</h2>
-        <p style={{ fontSize: 13.5, color: '#6B7280', margin: '0 0 18px' }}>
+        <p style={{ fontSize: 13.5, color: '#6B7280', margin: '0 0 14px' }}>
           {careerPage && 'Listed on your careers page. '}
           {sentCount > 0 ? `${sentCount} candidate${sentCount > 1 ? 's' : ''} entered the resume gate — those who clear get the assessment link automatically.` : 'Candidates who apply will pass through the resume gate.'}
         </p>
+        {sentCount > 0 && (
+          <div style={{ fontSize: 12, color: '#6B7280', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '9px 12px', marginBottom: 18 }}>
+            Ledger updated: <b style={{ color: '#B91C1C' }}>−{fmtCr(sentCount * resumeRate)}</b> · Resume Analyser · {sentCount} candidate{sentCount > 1 ? 's' : ''}
+          </div>
+        )}
         <button className="btn-primary" onClick={() => nav('/opportunities/' + id)}>Back to opportunity</button>
       </div>
     </div>
@@ -49,6 +61,17 @@ export default function SendAssessment() {
       </div>
       <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 2 }}>Send Assessment</div>
       <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>Everyone here passes through the <b>resume gate</b> first — only those who clear are auto-sent the assessment link.</div>
+
+      {!gate.ok && (
+        <div className="banner danger"><AlertTriangle size={17} />
+          <div style={{ flex: 1 }}><b>Sending is paused.</b> {gate.reason} <span style={{ color: '#056FD4', fontWeight: 700, cursor: 'pointer' }} onClick={() => nav('/billing')}>Top up →</span></div>
+        </div>
+      )}
+      {gate.ok && underfunded && (
+        <div className="banner warn"><AlertTriangle size={17} />
+          <div style={{ flex: 1 }}>Underfunded vs guidance ({fmtCr(est.total)} recommended, {fmtCr(clientWallet.available)} available) — you can send; evaluations pause automatically if credits run out.</div>
+        </div>
+      )}
 
       {/* career page */}
       <div className="card" style={{ padding: '18px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -82,10 +105,20 @@ export default function SendAssessment() {
         <button className="btn-ghost" onClick={() => setUploaded((u) => u + 40)}>+ Add 40 (demo)</button>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: 13, color: '#6B7280' }}>{total > 0 ? `${total} candidates will hit the resume gate` : 'Career-page applicants will be screened on apply'}</span>
-        <button className="btn-primary" onClick={send}><Send size={15} /> Send Assessment</button>
+      <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 10 }}>
+        This send will consume ~{fmtCr(cost)} (resume gate)<PendingChip /> — charged only as candidates are processed.
       </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <span style={{ fontSize: 13, color: '#6B7280' }}>{total > 0 ? `${total} candidates will hit the resume gate` : 'Career-page applicants will be screened on apply'}</span>
+        {gate.ok
+          ? <button className="btn-primary" onClick={send}><Send size={15} /> Send Assessment</button>
+          : <button className="btn-primary" disabled title={gate.reason} style={{ opacity: 0.5, cursor: 'not-allowed' }}>Sending paused — top up to continue</button>}
+      </div>
+      {!gate.ok && (
+        <div style={{ textAlign: 'right', marginTop: 8 }}>
+          <span style={{ fontSize: 12.5, color: '#056FD4', fontWeight: 700, cursor: 'pointer' }} onClick={() => nav('/billing')}>Top up credits →</span>
+        </div>
+      )}
     </div>
   );
 }

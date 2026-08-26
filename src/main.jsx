@@ -23,11 +23,13 @@ import AdminOverview from './pages/AdminOverview.jsx';
 import AdminClients from './pages/AdminClients.jsx';
 import AdminClientDetail from './pages/AdminClientDetail.jsx';
 import OnboardClient from './pages/OnboardClient.jsx';
-import AdminPlans from './pages/AdminPlans.jsx';
-import AdminBilling from './pages/AdminBilling.jsx';
-import AdminCatalog from './pages/AdminCatalog.jsx';
+import AdminCredits from './pages/AdminCredits.jsx';
+import AdminUsage from './pages/AdminUsage.jsx';
 import AdminSupport from './pages/AdminSupport.jsx';
+import AdminPlatform from './pages/AdminPlatform.jsx';
 import AdminCompliance from './pages/AdminCompliance.jsx';
+import AdminAnalytics from './pages/AdminAnalytics.jsx';
+import AdminSettings from './pages/AdminSettings.jsx';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -35,6 +37,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <AppProvider>
       <HashRouter>
         <Routes>
+          {/* ── Client portal ── */}
           <Route element={<Shell />}>
             <Route path="/" element={<Home />} />
             <Route path="/opportunities" element={<Opportunities />} />
@@ -50,18 +53,26 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/profile" element={<Profile />} />
             <Route path="/support" element={<Support />} />
           </Route>
+          {/* ── Candidate run-time (unchanged) ── */}
           <Route path="/candidate/:id" element={<CandidateFlow />} />
           <Route path="/login" element={<Login />} />
+          {/* ── Cuba Admin (operator control plane) ── */}
           <Route element={<AdminShell />}>
             <Route path="/admin" element={<AdminOverview />} />
             <Route path="/admin/clients" element={<AdminClients />} />
             <Route path="/admin/clients/new" element={<OnboardClient />} />
             <Route path="/admin/clients/:id" element={<AdminClientDetail />} />
-            <Route path="/admin/plans" element={<AdminPlans />} />
-            <Route path="/admin/billing" element={<AdminBilling />} />
-            <Route path="/admin/catalog" element={<AdminCatalog />} />
+            <Route path="/admin/credits" element={<AdminCredits />} />
+            <Route path="/admin/usage" element={<AdminUsage />} />
             <Route path="/admin/support" element={<AdminSupport />} />
+            <Route path="/admin/platform" element={<AdminPlatform />} />
             <Route path="/admin/compliance" element={<AdminCompliance />} />
+            <Route path="/admin/analytics" element={<AdminAnalytics />} />
+            <Route path="/admin/settings" element={<AdminSettings />} />
+            {/* legacy routes from the plan-based prototype */}
+            <Route path="/admin/plans" element={<Navigate to="/admin/credits?tab=ratecard" replace />} />
+            <Route path="/admin/billing" element={<Navigate to="/admin/credits" replace />} />
+            <Route path="/admin/catalog" element={<Navigate to="/admin/platform" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

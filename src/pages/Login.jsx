@@ -12,8 +12,8 @@ export default function Login() {
       <div style={{ position: 'absolute', bottom: -100, right: -40, width: 320, height: 320, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
       <div style={{ position: 'relative', width: 400, maxWidth: '92vw' }}>
         <div style={{ textAlign: 'center', marginBottom: 18 }}>
-          <div style={{ color: '#fff', fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}>Reboo8</div>
-          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, marginTop: 2 }}>Client Dashboard</div>
+          <div style={{ color: '#fff', fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}>Cuba</div>
+          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, marginTop: 2 }}>Client portal · by Reboo8</div>
         </div>
         <div className="card" style={{ padding: '28px 30px' }}>
           <h1 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 4px' }}>Welcome back</h1>
@@ -28,7 +28,10 @@ export default function Login() {
           </form>
         </div>
         <div style={{ textAlign: 'center', marginTop: 14, fontSize: 12.5, color: 'rgba(255,255,255,0.85)' }}>
-          Reboo8 operator? <span style={{ fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => nav('/admin')}>Admin sign-in</span>
+          Cuba operator? <span style={{ fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => nav('/admin')}>Admin sign-in</span>
+        </div>
+        <div style={{ textAlign: 'center', marginTop: 20, fontSize: 11.5, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, maxWidth: 340, marginLeft: 'auto', marginRight: 'auto' }}>
+          <b style={{ color: 'rgba(255,255,255,0.8)' }}>Sales-led access.</b> No self-serve signup — organizations are created by Cuba after a commercial agreement; your owner invite activates the workspace.
         </div>
       </div>
     </div>

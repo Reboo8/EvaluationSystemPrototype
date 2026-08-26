@@ -28,7 +28,8 @@ export default function Compare() {
         <span style={{ color: '#056FD4', fontWeight: 600, cursor: 'pointer' }} onClick={() => nav(`/opportunities/${id}/rank`)}>Rank List</span> › Compare
       </div>
       <div style={{ fontSize: 17, fontWeight: 700 }}>Compare Candidates</div>
-      <div style={{ fontSize: 12.5, color: '#6B7280', margin: '2px 0 16px' }}>Best value per row is highlighted green.</div>
+      <div style={{ fontSize: 12.5, color: '#6B7280', margin: '2px 0 4px' }}>Best value per row is highlighted green.</div>
+      <div style={{ fontSize: 12, color: '#9CA3AF', margin: '0 0 16px' }}>Everyone here already cleared the thresholds — thresholds <b>gate</b>. The weighted score below is what <b>ranks</b> them{weights.length > 0 ? ` (${weights.map((w) => `${w.label} ${w.w}%`).join(' · ')})` : ''}.</div>
 
       {cands.length === 0 ? (
         <div className="card" style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>No candidates selected. <span style={{ color: '#056FD4', cursor: 'pointer' }} onClick={() => nav(`/opportunities/${id}/rank`)}>Back to Rank List</span></div>

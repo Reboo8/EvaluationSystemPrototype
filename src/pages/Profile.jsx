@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import {
   Pencil, X, Lock, Eye, EyeOff, Check, Link2, Copy, BookOpen, Globe,
-  Layers, Zap, Code2, ChevronRight, CheckCircle2, Loader2,
+  Layers, Zap, Code2, ChevronRight, CheckCircle2, Loader2, Users, UserPlus, Mail,
 } from 'lucide-react';
+import { useApp, initials } from '../store.jsx';
+import { ClientStatusBadge, Mono, Modal, EmptyRow } from '../components/admin/ui.jsx';
 
-/* ── faithful rebuild of the ClientPortal Profile, wired to local state ── */
+/* ── faithful rebuild of the client Profile, wired to local state.
+   Cuba additions: Organization line (tenant ID + account status) and the "Team & roles" card (spec §02: a client can configure
+   the team while ACTIVE — even with 0 credits; Owner / Recruiter / Hiring Manager / Viewer). Code samples keep their reboo8.com domains. ── */
 
 const origin = (typeof window !== 'undefined' && window.location.origin) || 'https://app.reboo8.com';
 const SLUG = 'flipkart';
@@ -56,8 +60,11 @@ function CodeBlock({ code, id, copied, onCopy }) {
 }
 
 export default function Profile() {
-  const [company, setCompany] = useState({ companyName: 'Flipkart', industry: 'E-commerce / SaaS', website: 'https://flipkart.com' });
-  const [contact, setContact] = useState({ fullName: 'Flipkart Admin', email: 'hr@flipkart.com', phone: '+91 98765 43210' });
+  const { currentClient, clientTeam, inviteTeammate } = useApp();
+  const cc = currentClient || {};
+  const [company, setCompany] = useState({ companyName: cc.name || 'Flipkart', industry: cc.industry || 'E-commerce / SaaS', website: cc.website ? (/^https?:/.test(cc.website) ? cc.website : 'https://' + cc.website) : 'https://flipkart.com' });
+  const [contact, setContact] = useState({ fullName: cc.owner?.name || 'Flipkart Admin', email: cc.owner?.email || 'hr@flipkart.com', phone: cc.owner?.phone || '+91 98765 43210' });
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [editC, setEditC] = useState(false);
   const [editP, setEditP] = useState(false);
   const [draftC, setDraftC] = useState(company);
@@ -86,6 +93,12 @@ export default function Profile() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <h2 style={{ fontSize: 14.5, fontWeight: 700, margin: 0, color: '#1E293B' }}>Company Information</h2>
           {!editC && <button onClick={() => { setDraftC(company); setEditC(true); }} style={{ background: 'none', border: 'none', color: '#056FD4', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5, color: '#6B7280', margin: '-4px 0 10px' }}>
+          <span style={{ fontWeight: 600, color: '#374151' }}>Organization</span>
+          <span>tenant</span><Mono>{cc.tenantId || '—'}</Mono>
+          <span>·</span><ClientStatusBadge status={cc.status || 'ACTIVE'} />
+          {cc.since && <span>· customer since {cc.since}</span>}
         </div>
         {!editC ? (
           <>
@@ -131,6 +144,38 @@ export default function Profile() {
         )}
       </div>
 
+      {/* Team & roles (spec §02 — configure the team while ACTIVE; inviting never uses credits) */}
+      <div className="card" style={{ padding: '22px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Users size={16} color="#056FD4" />
+            <h2 style={{ fontSize: 14.5, fontWeight: 700, margin: 0, color: '#1E293B' }}>Team &amp; roles</h2>
+            <span className="badge" style={{ background: '#F3F4F6', color: '#6B7280' }}>{clientTeam.length} member{clientTeam.length === 1 ? '' : 's'}</span>
+          </div>
+          <button className="btn-primary" style={{ padding: '7px 13px', fontSize: 12.5 }} onClick={() => setInviteOpen(true)}><UserPlus size={14} /> Invite teammate</button>
+        </div>
+        <p style={{ fontSize: 12.5, color: '#64748B', margin: '0 0 14px', lineHeight: 1.6 }}>Owners manage the team and wallet; Recruiters run opportunities; Hiring Managers review and override with a reason; Viewers are read-only.</p>
+        <div className="table-wrap" style={{ border: '1px solid #E2E8F0', borderRadius: 10 }}>
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {clientTeam.length === 0 ? <EmptyRow cols={5} text="No teammates yet — invite your first Recruiter." /> : clientTeam.map((u) => (
+                <tr key={u.id}>
+                  <td><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div className="avatar" style={{ width: 30, height: 30, background: '#E0EDFF', color: '#056FD4', fontSize: 11 }}>{initials(u.name)}</div><span style={{ fontWeight: 600 }}>{u.name}</span></div></td>
+                  <td style={{ color: '#6B7280', fontSize: 13 }}>{u.email}</td>
+                  <td><RoleChip role={u.role} /></td>
+                  <td><MemberStatus status={u.status} /></td>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{u.status === 'INVITED' && <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => showToast(`Invite re-sent to ${u.email}`)}><Mail size={12} /> Resend invite</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
+          {CLIENT_ROLES.map((r) => <span key={r.id} style={{ fontSize: 11.5, color: '#9CA3AF', display: 'inline-flex', alignItems: 'center', gap: 6 }}><RoleChip role={r.id} small /> {r.desc}</span>)}
+        </div>
+      </div>
+
       {/* Security */}
       <div className="card" style={{ padding: '22px 24px' }}>
         <h2 style={{ fontSize: 14.5, fontWeight: 700, margin: '0 0 18px', color: '#1E293B' }}>Security</h2>
@@ -174,6 +219,7 @@ export default function Profile() {
       <IntegrationGuide copied={copied} onCopy={copy} />
 
       {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} onDone={() => { setPwOpen(false); showToast('Password updated.'); }} />}
+      {inviteOpen && <InviteTeammateModal team={clientTeam} onClose={() => setInviteOpen(false)} onSubmit={(f) => { inviteTeammate(f.name, f.email, f.role); setInviteOpen(false); showToast(`Invite sent to ${f.email} as ${f.role}`); }} />}
       <Toast toast={toast} />
     </div>
   );
@@ -199,13 +245,13 @@ const DOC_TABS = [
 ];
 
 const APPLY_STEPS = [
-  ['📧', 'Candidate clicks Apply Now', 'They land on the Reboo8 Evaluation System signup page. The job they applied for is tracked automatically.'],
+  ['📧', 'Candidate clicks Apply Now', 'They land on the Cuba evaluation signup page. The job they applied for is tracked automatically.'],
   ['📝', 'Signup + Resume Upload', 'Candidate creates an account with email verification, sets a password, and uploads their resume. AI parses the resume automatically.'],
   ['🖥️', 'System Check', 'Camera, microphone, internet speed, and browser compatibility are verified.'],
   ['🪪', 'Identity Verification', "Face photo and audio sample are captured to verify the candidate's identity."],
   ['📋', 'AI Assessment', 'Candidate takes a written assessment with AI-generated questions. Typing speed is also measured.'],
   ['🎤', 'AI Video Interview', 'An AI conducts a 10–15 minute video interview and scores the candidate on communication, clarity, and role fit.'],
-  ['✅', 'Results in Your Dashboard', 'Everything appears in your ClientPortal pipeline: score, CEFR level, typing speed, AI recommendation.'],
+  ['✅', 'Results in Your Dashboard', 'Everything appears in your Cuba pipeline: score, CEFR level, typing speed, AI recommendation.'],
 ];
 
 function StepBadge({ n }) {
@@ -280,7 +326,7 @@ function IntegrationGuide({ copied, onCopy }) {
             <p style={{ fontSize: 12.5, color: '#6B7280', margin: '0 0 16px', lineHeight: 1.6 }}>The simplest way to show jobs on your website. Paste one HTML snippet on your careers page. That's it — no backend changes, no API keys, no maintenance.</p>
             <DocStep n={1} title="Open your website careers page (e.g. yourcompany.com/careers)">Go to the HTML file or CMS template where you want jobs to appear.</DocStep>
             <DocStep n={2} title="Paste this snippet where you want jobs to appear"><CodeBlock code={iframeCode} id="iframe-code" copied={copied} onCopy={onCopy} /></DocStep>
-            <DocStep n={3} title="Save and deploy — done!">From now on, every time you publish a job in Reboo8, it automatically appears on your website. No further changes needed.</DocStep>
+            <DocStep n={3} title="Save and deploy — done!">From now on, every time you publish a job in Cuba, it automatically appears on your website. No further changes needed.</DocStep>
             <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 12px', fontSize: 12.5, color: '#92400E', lineHeight: 1.6 }}>💡 Tip: You can adjust <code style={{ background: '#FEF3C7', padding: '1px 5px', borderRadius: 4 }}>height="600px"</code> to match your page layout. Use <code style={{ background: '#FEF3C7', padding: '1px 5px', borderRadius: 4 }}>height="100vh"</code> for full-page.</div>
           </>
         )}
@@ -322,7 +368,7 @@ function IntegrationGuide({ copied, onCopy }) {
         {tab === 'apply' && (
           <>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#14212A', marginBottom: 4 }}>What Happens After a Candidate Clicks "Apply Now"</div>
-            <p style={{ fontSize: 12.5, color: '#6B7280', margin: '0 0 18px', lineHeight: 1.6 }}>You don't need to build anything for this. Reboo8 handles the entire evaluation process. Here's what the candidate experiences:</p>
+            <p style={{ fontSize: 12.5, color: '#6B7280', margin: '0 0 18px', lineHeight: 1.6 }}>You don't need to build anything for this. Cuba handles the entire evaluation process. Here's what the candidate experiences:</p>
             <div>
               {APPLY_STEPS.map(([emoji, title, desc], i) => {
                 const lastStep = i === APPLY_STEPS.length - 1;
@@ -341,7 +387,7 @@ function IntegrationGuide({ copied, onCopy }) {
               })}
             </div>
             <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '14px 16px', marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#15803D', marginBottom: 10 }}>What you see in your ClientPortal pipeline:</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#15803D', marginBottom: 10 }}>What you see in your Cuba pipeline:</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
                 {[['Applied', 245, '#056FD4'], ['Assessment', 80, '#7C3AED'], ['Interview', 30, '#D97706'], ['Cleared', 18, '#059669']].map(([l, v, c]) => (
                   <div key={l} style={{ textAlign: 'center' }}><div style={{ fontSize: 22, fontWeight: 700, color: c }}>{v}</div><div style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>{l}</div></div>
@@ -353,10 +399,50 @@ function IntegrationGuide({ copied, onCopy }) {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', borderTop: '1px solid #F3F4F6', fontSize: 12, color: '#9CA3AF' }}>
-        <span>Need help? Contact <a href="mailto:support@reboo8.com" style={{ color: '#056FD4', textDecoration: 'none' }}>support@reboo8.com</a></span>
-        <span>Reboo8 Integration Guide v1.0</span>
+        <span>Need help? Contact <a href="mailto:support@cuba.reboo8.com" style={{ color: '#056FD4', textDecoration: 'none' }}>support@cuba.reboo8.com</a></span>
+        <span>Cuba Integration Guide v1.0 <span style={{ color: '#CBD5E1' }}>· by Reboo8</span></span>
       </div>
     </div>
+  );
+}
+
+/* ── Team & roles helpers (client-side roles; distinct from Cuba Admin RBAC) ── */
+const CLIENT_ROLES = [
+  { id: 'Owner', desc: 'manages the team and wallet' },
+  { id: 'Recruiter', desc: 'creates and runs opportunities' },
+  { id: 'Hiring Manager', desc: 'reviews and overrides with a reason' },
+  { id: 'Viewer', desc: 'read-only' },
+];
+function RoleChip({ role, small }) {
+  const m = { Owner: ['#EDE9FE', '#6D28D9'], Recruiter: ['#EFF6FF', '#1E40AF'], 'Hiring Manager': ['#FEF3C7', '#B45309'], Viewer: ['#F3F4F6', '#6B7280'] };
+  const [bg, fg] = m[role] || m.Viewer;
+  return <span className="chip" style={{ background: bg, color: fg, ...(small ? { padding: '2px 8px', fontSize: 11 } : {}) }}>{role}</span>;
+}
+function MemberStatus({ status }) {
+  const m = { ACTIVE: ['#DCFCE7', '#15803D', 'Active'], INVITED: ['#DBEAFE', '#1E40AF', 'Invited'], DEACTIVATED: ['#F3F4F6', '#6B7280', 'Deactivated'] };
+  const [bg, fg, l] = m[status] || ['#F3F4F6', '#6B7280', status];
+  return <span className="badge" style={{ background: bg, color: fg }}>{l}</span>;
+}
+function InviteTeammateModal({ team, onClose, onSubmit }) {
+  const [f, setF] = useState({ name: '', email: '', role: 'Recruiter' });
+  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const email = f.email.trim().toLowerCase();
+  const dup = (team || []).some((u) => (u.email || '').toLowerCase() === email);
+  const ok = f.name.trim().length >= 2 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !dup;
+  const meta = CLIENT_ROLES.find((r) => r.id === f.role);
+  return (
+    <Modal title="Invite teammate" onClose={onClose} width={480}
+      footer={<><button className="btn-ghost" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={!ok} onClick={() => onSubmit({ name: f.name.trim(), email, role: f.role })}><UserPlus size={14} /> Send invite</button></>}>
+      <label className="field-label">Full name <span className="req">*</span></label>
+      <input className="input" value={f.name} onChange={set('name')} placeholder="e.g. Ananya Rao" autoFocus style={{ marginBottom: 12 }} />
+      <label className="field-label">Work email <span className="req">*</span></label>
+      <input className="input" type="email" value={f.email} onChange={set('email')} placeholder="name@company.com" style={{ marginBottom: dup ? 4 : 12 }} />
+      {dup && <div style={{ fontSize: 11.5, color: '#EF4444', marginBottom: 10 }}>This email is already on the team.</div>}
+      <label className="field-label">Role</label>
+      <select className="input" value={f.role} onChange={set('role')}>{CLIENT_ROLES.map((r) => <option key={r.id} value={r.id}>{r.id}</option>)}</select>
+      <div className="hint" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><RoleChip role={f.role} small /> {meta?.desc}</div>
+      <div style={{ marginTop: 14, background: '#F8FAFF', border: '1px solid #EEF2F7', borderRadius: 8, padding: '9px 12px', fontSize: 12.5, color: '#6B7280', lineHeight: 1.5 }}>The invitee receives an email link and shows as <b>Invited</b> until they activate. Inviting a teammate never uses credits.</div>
+    </Modal>
   );
 }
 

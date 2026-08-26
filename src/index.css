@@ -1,4 +1,4 @@
-/* ===== Reboo8 prototype — design system (extracted from MVP 1) ===== */
+/* ===== Cuba prototype — design system (extracted from MVP 1) ===== */
 * { box-sizing: border-box; }
 body, html, #root { margin: 0; height: 100%; }
 body {
@@ -87,3 +87,22 @@ tr.row:hover td { background: #F8FAFF; cursor: pointer; }
 .spin { animation: spin .7s linear infinite; }
 @keyframes shake { 0%,100% { transform: translateX(0); } 15% { transform: translateX(-8px); } 30% { transform: translateX(8px); } 45% { transform: translateX(-6px); } 60% { transform: translateX(6px); } 75% { transform: translateX(-3px); } 90% { transform: translateX(3px); } }
 @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+/* ===== additions for the admin control plane (credits model) ===== */
+.kbd { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #475569; background: #F3F4F6; border: 1px solid #E2E8F0; border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+.tnum { font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; }
+.filter-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 9999px; font-size: 12.5px; font-weight: 600; border: 1px solid #E2E8F0; background: #fff; color: #475569; cursor: pointer; }
+.filter-btn.active { background: #056FD4; border-color: #056FD4; color: #fff; }
+.banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; font-size: 13px; margin-bottom: 18px; }
+.banner.warn { background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; }
+.banner.danger { background: #FEF2F2; border: 1px solid #FCA5A5; color: #991B1B; }
+.banner.info { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E40AF; }
+.banner.dark { background: #14212A; border: 1px solid #14212A; color: #fff; }
+.section-title { font-size: 15px; font-weight: 700; margin: 0 0 12px; }
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 40px; }
+.spark span { flex: 1; background: #BFDBFE; border-radius: 2px 2px 0 0; min-width: 4px; }
+.spark span.last { background: #056FD4; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.fade-in { animation: fadeIn .15s ease; }

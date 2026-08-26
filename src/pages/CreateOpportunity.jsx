@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Check, X, Sparkles, Loader2, Code2, Headphones, Stethoscope, PenTool, TrendingUp, Calculator } from 'lucide-react';
-import { useApp, ROLE_CATALOG } from '../store.jsx';
+import { ChevronLeft, ChevronRight, Check, X, Sparkles, Loader2, Code2, Headphones, Stethoscope, PenTool, TrendingUp, Calculator, Info, AlertTriangle, Lock } from 'lucide-react';
+import { useApp, ROLE_CATALOG, fmtCr, CLIENT_STATUS } from '../store.jsx';
+import { PendingChip } from '../components/admin/ui.jsx';
 import { draftJD, suggestSkills, designAssessment } from '../ai.js';
 import RichText from '../components/RichText.jsx';
 
@@ -10,6 +11,7 @@ const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 const CAT_ICON = { it: Code2, cx: Headphones, health: Stethoscope, design: PenTool, sales: TrendingUp, finops: Calculator };
 const MODNAME = { resume: 'Resume / JD Screen', written: 'Written', mcq: 'MCQ / Objective', coding: 'Coding', sjt: 'Situational Judgement', language: 'Language / CEFR', personality: 'Personality', typing: 'Typing', computer: 'Computer Literacy', interview: 'AI Interview', simulation: 'Simulation', custom: 'Custom' };
 const STORAGE_KEY = 'reboo8_new_opp_draft';
+const num = (n) => (Number(n) || 0).toLocaleString('en-IN');
 const DEFAULT_FORM = {
   title: '', location: '', workMode: 'Remote', roleType: '', shiftTime: '',
   requiredPositions: '', closingDate: '', department: '', jobDescription: '',
@@ -40,7 +42,7 @@ const Label = ({ children, req }) => <label className="field-label">{children}{r
 
 export default function CreateOpportunity() {
   const nav = useNavigate();
-  const { addOpportunity } = useApp();
+  const { addOpportunity, clientEstimate, clientCanStart, clientWallet, currentClient, currentClientId, addAudit } = useApp();
   const [step, setStep] = useState(() => loadDraft()?.step || 1);
   const [f, setF] = useState(() => ({ ...DEFAULT_FORM, ...(loadDraft()?.f || {}) }));
   const [restored, setRestored] = useState(() => !!loadDraft());
@@ -98,14 +100,31 @@ export default function CreateOpportunity() {
     : step === 5 ? ((f.assessment?.weights?.length || 0) > 0 && totalAW === 100)
     : true;
 
-  const publish = () => {
-    const id = addOpportunity({ ...f, requiredPositions: Number(f.requiredPositions) || 0 });
+  /* §03: SUSPENDED / OFFBOARDING restrict NEW activity — a wallet reason does not (a 0-credit ACTIVE client may still publish). */
+  const acctBlock = currentClient?.status && currentClient.status !== 'ACTIVE'
+    ? `Account is ${CLIENT_STATUS[currentClient.status]?.label || currentClient.status} — new opportunities cannot be created.`
+    : currentClient?.paused ? 'Usage is temporarily paused by Cuba Admin — new opportunities cannot be created.' : '';
+
+  const create = (status) => {
+    if (acctBlock) return;
+    const id = addOpportunity({ ...f, ...(status ? { status } : {}), requiredPositions: Number(f.requiredPositions) || 0 });
+    addAudit('Opportunity', `Created opportunity${status === 'DRAFT' ? ' (draft)' : ''}`, f.title || 'Untitled opportunity', {
+      clientId: currentClientId, actor: `${currentClient?.name || 'Client'} · Recruiter`, role: 'client',
+      reason: `${Number(f.requiredPositions) || 0} positions · ${(f.assessment?.weights || []).map((w) => `${w.label} ${w.w}%`).join(', ') || 'default weights'}`,
+    });
     clearDraft();
     nav('/opportunities/' + id);
   };
+  const publish = () => create(null);
 
   return (
     <div style={{ maxWidth: 820, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {acctBlock && (
+        <div className="banner danger" style={{ margin: 0 }}>
+          <Lock size={17} />
+          <div style={{ flex: 1 }}><b>{acctBlock}</b> Existing opportunities stay readable and running evaluations finish safely. <span style={{ color: '#056FD4', fontWeight: 700, cursor: 'pointer' }} onClick={() => nav('/support')}>Contact support →</span></div>
+        </div>
+      )}
       {restored && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '10px 14px' }}>
           <span style={{ fontSize: 12.5, color: '#1E40AF' }}>↩ Restored your unsaved draft — pick up where you left off.</span>
@@ -287,6 +306,13 @@ export default function CreateOpportunity() {
             <Rev label="Assessment" v={f.assessment?.weights?.length ? `${tpl ? tpl.role + ' template · ' : ''}${f.assessment.weights.map((w) => w.label).join(' · ')}` : 'Default (Written · AI Interview · Integrity)'} />
             <ChipRow label="Skills" items={f.requiredSkills} />
             <ChipRow label="Languages" items={f.requiredLanguages} tone="orange" />
+            <FundingCard
+              estimate={clientEstimate({ requiredPositions: f.requiredPositions, assessment: f.assessment || { modules: [], weights: [] } })}
+              wallet={clientWallet}
+              start={clientCanStart()}
+              acctBlock={acctBlock}
+              onTopUp={() => nav('/billing')}
+            />
             <div style={{ marginTop: 18 }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: '#374151', marginBottom: 8 }}>Job Description</div>
               <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: '16px 18px' }}>
@@ -302,10 +328,10 @@ export default function CreateOpportunity() {
         <button className="btn-ghost" disabled={step === 1} onClick={() => setStep((s) => s - 1)}><ChevronLeft size={15} /> Back</button>
         <span style={{ fontSize: 12, color: '#9CA3AF' }}>Step {step} of {STEPS.length}</span>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn-ghost" onClick={() => { const id = addOpportunity({ ...f, status: 'DRAFT', requiredPositions: Number(f.requiredPositions) || 0 }); clearDraft(); nav('/opportunities/' + id); }}>Save as Draft</button>
+          <button className="btn-ghost" disabled={!!acctBlock} title={acctBlock || 'Save without publishing'} onClick={() => create('DRAFT')}>Save as Draft</button>
           {step < STEPS.length
             ? <button className="btn-primary" disabled={!canNext} onClick={() => setStep((s) => s + 1)}>Next <ChevronRight size={15} /></button>
-            : <button className="btn-success" onClick={publish}><Check size={15} /> Publish Opportunity</button>}
+            : <button className="btn-success" disabled={!!acctBlock} title={acctBlock || 'Publish this opportunity'} onClick={publish}><Check size={15} /> Publish Opportunity</button>}
         </div>
       </div>
     </div>
@@ -324,3 +350,58 @@ const ChipRow = ({ label, items, tone }) => (
     </div>
   </div>
 );
+
+/* ── funding guidance (spec §04): a safety requirement, not a pre-charge ── */
+function FundingCard({ estimate: est, wallet, start, acctBlock, onTopUp }) {
+  const funded = est.total <= wallet.available;
+  return (
+    <div className="card" style={{ padding: '18px 20px', marginTop: 20, background: '#F8FBFF', border: '1px solid #E0EDFF' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><Calculator size={15} color="#056FD4" /> Funding guidance</div>
+          <div style={{ fontSize: 12, color: '#6B7280', marginTop: 3 }}>Recommended credits to safely run this opportunity end-to-end, based on your hiring target.</div>
+        </div>
+        <span className="badge" style={{ background: funded ? '#DCFCE7' : '#FEF3C7', color: funded ? '#15803D' : '#B45309' }}>
+          {funded ? 'Funded' : `Underfunded by ${fmtCr(Math.max(0, est.total - wallet.available))}`}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap' }}>
+        <FGStat label="Hiring target" value={num(est.target)} sub="positions to fill" />
+        <FGStat label={<>Resume-gate capacity<PendingChip /></>} value={`${num(est.resumeCap)} cand.`} sub={`target × 50 → ${num(est.resumeCredits)} cr`} />
+        <FGStat label={<>Full-evaluation capacity<PendingChip /></>} value={`${num(est.fullCap)} cand.`} sub={`target × 10 → ${num(est.fullCredits)} cr`} />
+        <FGStat label="Per fully-evaluated candidate" value={`${num(est.perCandidate)} cr`} />
+        <FGStat label="Recommended funding" value={fmtCr(est.total)} tone={funded ? 'ok' : 'warn'} sub={`vs ${fmtCr(wallet.available)} available`} />
+      </div>
+      {!funded && (
+        <div style={{ fontSize: 12.5, color: '#B45309', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '9px 12px', marginTop: 12 }}>
+          Underfunded by {fmtCr(Math.max(0, est.total - wallet.available))} — you can still publish; new evaluations pause when credits run out.
+        </div>
+      )}
+      {acctBlock ? (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, color: '#991B1B', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '9px 12px', marginTop: 10 }}>
+          <Lock size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>{acctBlock} Unlike a low wallet, an account-status restriction also blocks publishing — including as a draft.</span>
+        </div>
+      ) : !start.ok && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, color: '#991B1B', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '9px 12px', marginTop: 10 }}>
+          <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>{start.reason} Evaluations cannot start until this is resolved — <span style={{ color: '#056FD4', fontWeight: 700, cursor: 'pointer' }} onClick={onTopUp}>top up →</span>. This is a wallet reason, so publishing (as a draft or live) is still allowed.</span>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, color: '#9CA3AF', marginTop: 12, lineHeight: 1.5 }}>
+        <Info size={12} style={{ flexShrink: 0, marginTop: 2 }} />
+        <span>Safety requirement, not a pre-charge — credits are consumed only when services actually run.</span>
+      </div>
+    </div>
+  );
+}
+function FGStat({ label, value, sub, tone }) {
+  const col = tone === 'ok' ? '#15803D' : tone === 'warn' ? '#B45309' : '#14212A';
+  return (
+    <div style={{ minWidth: 118 }}>
+      <div className="eyebrow">{label}</div>
+      <div className="tnum" style={{ fontSize: 15, fontWeight: 700, color: col, marginTop: 2 }}>{value}</div>
+      {sub && <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}

@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ShieldCheck, FileText, ListChecks, Code2, GitBranch, Languages, UserRound,
   Keyboard, Monitor, Mic, MessagesSquare, ClipboardList, Plus, Settings2, Trash2,
-  Sparkles, X, ChevronUp, ChevronDown, Check, Puzzle, Loader2,
+  Sparkles, X, ChevronUp, ChevronDown, Check, Puzzle, Loader2, Coins, AlertTriangle, Lock,
 } from 'lucide-react';
-import { useApp } from '../store.jsx';
+import { useApp, fmtCr, CLIENT_STATUS } from '../store.jsx';
 import { generateQuestions, suggestSkills } from '../ai.js';
 
 const CATALOG = [
@@ -23,14 +23,24 @@ const CATALOG = [
   { key: 'custom', name: 'Custom Questionnaire', icon: ClipboardList, time: 'varies' },
 ];
 const META = Object.fromEntries(CATALOG.map((c) => [c.key, c]));
+/* rank-parameter label per module key — weightedScore() matches a weight to a candidate sub-score BY NAME, so these must agree */
+const WEIGHT_LABEL = { resume: 'Resume-fit', written: 'Written', mcq: 'MCQ', coding: 'Coding', sjt: 'SJT', language: 'Language', personality: 'Personality', typing: 'Typing', computer: 'Computer Literacy', interview: 'AI Interview', simulation: 'Simulation' };
 
 export default function AssessmentBuilder() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { getOpportunity, updateAssessment, customModules, addCustomModule, assessmentTemplates, saveTemplate, deleteTemplate } = useApp();
+  const {
+    getOpportunity, updateAssessment, customModules, addCustomModule, assessmentTemplates, saveTemplate, deleteTemplate,
+    availableCatalogFor, currentClientId, currentClient, rateCard, rateOf, getCandidates, addAudit,
+  } = useApp();
   const opp = getOpportunity(id);
   const catalog = [...CATALOG, ...customModules.map((c) => ({ ...c, icon: Puzzle }))];
   const metaOf = (key) => catalog.find((c) => c.key === key) || { name: key, icon: FileText };
+
+  // module availability for this client (spec §10 boundary: Admin controls what's offered, client controls how it's used)
+  const availList = availableCatalogFor(currentClientId);
+  const availByKey = Object.fromEntries(availList.map((mm) => [mm.key, { ok: mm.availability.ok, note: mm.availability.note || '', state: mm.state, paused: mm.paused }]));
+  const availOf = (key) => availByKey[key] || { ok: true, note: '', state: 'ACTIVE', paused: false };
 
   const [modules, setModules] = useState(() => (opp?.assessment?.modules || []).map((m) => ({ ...m })));
   const [weights, setWeights] = useState(() => (opp?.assessment?.weights || []).map((w) => ({ ...w })));
@@ -43,6 +53,29 @@ export default function AssessmentBuilder() {
   if (!opp) return <div className="card" style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Opportunity not found.</div>;
 
   const totalW = weights.reduce((a, b) => a + (Number(b.w) || 0), 0);
+
+  /* ── credits: this screen IS the pricing decision (spec §04/§05 — rates are live, Cuba Admin can change them) ── */
+  const unitOf = (key) => (rateCard || []).find((r) => r.key === key)?.unit || 'per attempt';
+  const proctorRate = rateOf('proctoring');
+  const resumeRate = modules.some((m) => m.key === 'resume') ? rateOf('resume') : 0;
+  /* matches estimateFunding(): everything except the resume gate, plus one proctoring session */
+  const perCandidate = modules.filter((m) => m.key !== 'resume').reduce((a, m) => a + rateOf(m.key), 0) + proctorRate;
+  const prevModules = opp.assessment?.modules || [];
+  const prevPerCandidate = prevModules.filter((m) => m.key !== 'resume').reduce((a, m) => a + rateOf(m.key), 0) + proctorRate;
+  const costDelta = perCandidate - prevPerCandidate;
+
+  /* ── weight integrity: a weight label only scores if a candidate actually has that sub-score (store.weightedScore keys by label) ── */
+  const existing = getCandidates(id);
+  const scoreKeys = Array.from(new Set(existing.flatMap((c) => Object.keys(c.scores || {}))));
+  const unmatched = scoreKeys.length ? weights.filter((w) => !scoreKeys.includes(w.label)) : [];
+  const known = (label) => !scoreKeys.length || scoreKeys.includes(label);
+
+  /* ── §03: an account-status reason restricts new activity; a wallet reason never blocks configuration ── */
+  const acctBlock = currentClient?.status && currentClient.status !== 'ACTIVE'
+    ? `Account is ${CLIENT_STATUS[currentClient.status]?.label || currentClient.status} — assessment changes are restricted.`
+    : currentClient?.paused ? 'Usage is temporarily paused by Cuba Admin — assessment changes are restricted.' : '';
+  const saveBlock = acctBlock || (totalW !== 100 ? `Rank weights total ${totalW}% — they must equal 100% before saving.` : '');
+  const nextVersion = 'v' + ((parseInt((opp.assessment?.version || 'v1').slice(1), 10) || 1) + 1);
   const addModule = (key, defaults = {}) => setModules((m) => [...m, { id: 'm' + Math.random().toString(36).slice(2, 7), key, skills: [], nQ: 3, rubric: [], gate: 'Advance ≥ 60', weight: 0, ...defaults }]);
   const removeModule = (i) => setModules((m) => m.filter((_, x) => x !== i));
   const moveModule = (i, dir) => setModules((m) => {
@@ -50,23 +83,50 @@ export default function AssessmentBuilder() {
     if (j < 0 || j >= m.length) return m;
     const next = [...m]; [next[i], next[j]] = [next[j], next[i]]; return next;
   });
-  const save = () => { updateAssessment(id, { modules, weights }); nav('/opportunities/' + id); };
+  const save = () => {
+    if (saveBlock) { showToast(saveBlock); return; }
+    const prevW = opp.assessment?.weights || [];
+    const diffs = [];
+    weights.forEach((w) => { const q = prevW.find((x) => x.label === w.label); if (!q) diffs.push(`${w.label} +${w.w}%`); else if (Number(q.w) !== Number(w.w)) diffs.push(`${w.label} ${q.w}→${w.w}`); });
+    prevW.forEach((q) => { if (!weights.some((w) => w.label === q.label)) diffs.push(`${q.label} removed`); });
+    const prevKeys = prevModules.map((m) => m.key);
+    const nowKeys = modules.map((m) => m.key);
+    nowKeys.filter((k) => !prevKeys.includes(k)).forEach((k) => diffs.push(`+${metaOf(k).name}`));
+    prevKeys.filter((k) => !nowKeys.includes(k)).forEach((k) => diffs.push(`−${metaOf(k).name}`));
+    if (costDelta) diffs.push(`${costDelta > 0 ? '+' : ''}${costDelta} cr per candidate`);
+    updateAssessment(id, { modules, weights });
+    addAudit('Assessment config', `Assessment updated ${opp.assessment?.version || 'v1'} → ${nextVersion}`, opp.title, {
+      clientId: currentClientId, actor: `${currentClient?.name || 'Client'} · Recruiter`, role: 'client',
+      reason: diffs.length ? diffs.join(', ') : 'No effective change',
+    });
+    nav('/opportunities/' + id);
+  };
   const applyTemplate = (t) => { setModules((t.modules || []).map((m) => ({ ...m }))); setWeights((t.weights || []).map((w) => ({ ...w }))); showToast('Loaded “' + t.name + '”'); };
   // role/module-aware weight suggestion — derived from the modules actually in the assessment (never injects Coding for a non-coding role)
   const suggestWeights = () => {
-    const LABEL = { resume: 'Resume-fit', written: 'Written', mcq: 'MCQ', coding: 'Coding', sjt: 'SJT', language: 'Language', personality: 'Personality', typing: 'Typing', computer: 'Computer Literacy', interview: 'AI Interview', simulation: 'Simulation' };
+    const LABEL = WEIGHT_LABEL;
     const BASE = { coding: 30, interview: 30, mcq: 30, written: 20, sjt: 20, simulation: 20, language: 25, personality: 10, typing: 5, computer: 15 };
     const entries = [];
     modules.forEach((m) => { if (m.key === 'resume') return; entries.push({ label: LABEL[m.key] || metaOf(m.key).name, w: BASE[m.key] ?? 15 }); });
     if (modules.some((m) => m.key === 'resume')) entries.push({ label: 'Resume-fit', w: 5 });
     entries.push({ label: 'Integrity', w: 10 });
-    const total = entries.reduce((a, b) => a + b.w, 0) || 1;
-    const scaled = entries.map((e) => ({ ...e, w: Math.round(e.w / total * 100) }));
+    /* a label that no scored candidate has drags every weighted score down (it counts as 0) — never suggest one */
+    const dropped = scoreKeys.length ? entries.filter((e) => !scoreKeys.includes(e.label)).map((e) => e.label) : [];
+    const usable = scoreKeys.length ? entries.filter((e) => scoreKeys.includes(e.label)) : entries;
+    if (!usable.length) { showToast('No rank parameter matches an existing sub-score — add modules first'); return; }
+    const total = usable.reduce((a, b) => a + b.w, 0) || 1;
+    const scaled = usable.map((e) => ({ ...e, w: Math.round(e.w / total * 100) }));
     const drift = 100 - scaled.reduce((a, b) => a + b.w, 0);
     if (drift && scaled.length) { let mi = 0; scaled.forEach((x, i) => { if (x.w > scaled[mi].w) mi = i; }); scaled[mi] = { ...scaled[mi], w: scaled[mi].w + drift }; }
     setWeights(scaled);
-    showToast('Weights suggested from your modules');
+    showToast(dropped.length ? `Weights suggested — left out ${dropped.join(', ')} (no candidate has that sub-score yet)` : 'Weights suggested from your modules');
   };
+  /* add a rank parameter by picking a real sub-score key, not a free-text label */
+  const paramOptions = Array.from(new Set([
+    ...scoreKeys,
+    ...modules.map((m) => WEIGHT_LABEL[m.key] || metaOf(m.key).name),
+    'Integrity',
+  ])).filter((k) => !weights.some((w) => w.label === k));
 
   return (
     <>
@@ -76,32 +136,56 @@ export default function AssessmentBuilder() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>Configure Assessment</div>
-          <div style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>Compose modules, set per-module rubrics &amp; thresholds, and the rank weights.</div>
+          <div style={{ fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 9 }}>
+            Configure Assessment
+            <span className="badge" style={{ background: '#F3F4F6', color: '#6B7280' }}>Version {opp.assessment?.version || 'v1'}</span>
+          </div>
+          <div style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>Compose modules, set per-module rubrics &amp; thresholds, and the rank weights. Saving creates a new version.</div>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <span className="chip" style={{ background: totalW === 100 ? '#ECFDF5' : '#FEF2F2', color: totalW === 100 ? '#16A34A' : '#DC2626' }}>{modules.length} modules · weights {totalW}%</span>
+          <span className="chip" style={{ background: '#F8FAFF', color: '#056FD4', border: '1px solid #E0EDFF' }}><Coins size={12} /> {fmtCr(perCandidate)} / candidate{costDelta !== 0 && <b style={{ color: costDelta > 0 ? '#B45309' : '#15803D', marginLeft: 4 }}>{costDelta > 0 ? '+' : ''}{costDelta}</b>}</span>
           <button className="btn-ghost" onClick={() => setShowSaveTpl(true)}><Sparkles size={14} /> Save as Template</button>
-          <button className="btn-primary" onClick={save}><Check size={15} /> Save assessment</button>
+          <button className="btn-primary" disabled={!!saveBlock} title={saveBlock || `Saves ${nextVersion}`} onClick={save}><Check size={15} /> Save assessment</button>
         </div>
       </div>
+
+      {acctBlock && (
+        <div className="banner danger" style={{ marginBottom: 16 }}>
+          <Lock size={17} />
+          <div style={{ flex: 1 }}><b>{acctBlock}</b> You can review the configuration; saving a new version is disabled until Cuba Admin reinstates the workspace.</div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '290px 1fr', gap: 18, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* catalog */}
         <div className="card" style={{ padding: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Module Catalog</div>
-          <div style={{ fontSize: 11.5, color: '#9CA3AF', marginBottom: 12 }}>Add what this role needs</div>
-          {catalog.map((c) => (
-            <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', border: '1px solid #E2E8F0', borderRadius: 10, marginBottom: 8 }}>
+          <div style={{ fontSize: 11.5, color: '#9CA3AF', marginBottom: 6 }}>Add what this role needs</div>
+          <div style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', lineHeight: 1.5, marginBottom: 12 }}>Cuba Admin controls which modules are offered; you decide how they're used here.</div>
+          {catalog.filter((c) => availOf(c.key).state !== 'DISABLED').map((c) => {
+            const av = availOf(c.key);
+            const isPaused = (av.note || '').toLowerCase().includes('paused');
+            const canAdd = av.ok || isPaused;
+            const greyed = !canAdd;
+            return (
+            <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', border: '1px solid #E2E8F0', borderRadius: 10, marginBottom: 8, opacity: greyed ? 0.5 : 1 }}>
               <div className="icon-box" style={{ width: 32, height: 32, borderRadius: 8, background: c.custom ? '#EDE9FE' : '#E0EDFF', color: c.custom ? '#6D28D9' : '#056FD4' }}><c.icon size={16} /></div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}{c.custom && <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9', marginLeft: 6 }}>custom</span>}</div>
-                <div style={{ fontSize: 11, color: '#9CA3AF' }}>{c.time}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {c.name}
+                  {c.custom && <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9' }}>custom</span>}
+                  {av.state === 'BETA' && av.ok && !isPaused && <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9' }}>Beta</span>}
+                  {isPaused && <span className="badge" style={{ background: '#FEF3C7', color: '#B45309' }}>New attempts paused</span>}
+                </div>
+                <div style={{ fontSize: 11, color: '#9CA3AF' }}>{c.time}{rateOf(c.key) > 0 ? <> · <b style={{ color: '#056FD4' }}>{rateOf(c.key)} cr</b> {unitOf(c.key)}</> : <> · <span style={{ color: '#15803D' }}>free</span></>}</div>
+                {greyed && av.note && <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 2 }}>{av.note}</div>}
               </div>
-              <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => addModule(c.key, c.custom ? { rubric: c.rubric || [] } : {})}>+ Add</button>
+              <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} disabled={!canAdd} title={!canAdd ? av.note : undefined} onClick={() => canAdd && addModule(c.key, c.custom ? { rubric: c.rubric || [] } : {})}>+ Add</button>
             </div>
-          ))}
+            );
+          })}
           <div onClick={() => setShowCreate(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 10px', border: '1.5px dashed #C7B8F5', borderRadius: 10, color: '#6D28D9', background: '#FAF8FF', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             <Plus size={15} /> Create custom module
           </div>
@@ -133,6 +217,8 @@ export default function AssessmentBuilder() {
             {modules.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No modules yet — add from the catalog.</div>}
             {modules.map((m, i) => {
               const c = metaOf(m.key);
+              const av = availOf(m.key);
+              const isPaused = (av.note || '').toLowerCase().includes('paused');
               return (
                 <div key={m.id || i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid #E2E8F0', borderRadius: 10, marginBottom: 10 }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -141,14 +227,42 @@ export default function AssessmentBuilder() {
                   </div>
                   <div className="icon-box" style={{ width: 36, height: 36, borderRadius: 8 }}><c.icon size={18} /></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{i + 1}. {c.name}{m.key === 'resume' && <span className="badge" style={{ background: '#EFF6FF', color: '#056FD4', marginLeft: 8 }}>gate</span>}</div>
-                    <div style={{ fontSize: 11.5, color: '#9CA3AF' }}>tests: {m.skills?.length ? m.skills.join(', ') : '—'}{m.rubric?.length ? ` · ${m.rubric.length} rubric dims` : ''}{m.questions?.length ? ` · ${m.questions.length} Qs` : ''} · weight {m.weight || 0}%</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {i + 1}. {c.name}
+                      {m.key === 'resume' && <span className="badge" style={{ background: '#EFF6FF', color: '#056FD4' }}>gate</span>}
+                      {av.state === 'BETA' && av.ok && !isPaused && <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9' }}>Beta</span>}
+                      {isPaused && <span className="badge" style={{ background: '#FEF3C7', color: '#B45309' }}>New attempts paused</span>}
+                      {!av.ok && !isPaused && av.note && <span className="badge" style={{ background: '#FFEDD5', color: '#C2410C' }}>{av.note}</span>}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: '#9CA3AF' }}>tests: {m.skills?.length ? m.skills.join(', ') : '—'}{m.rubric?.length ? ` · ${m.rubric.length} rubric dims` : ''}{m.questions?.length ? ` · ${m.questions.length} Qs` : ''} · weight {m.weight || 0}% · <b style={{ color: rateOf(m.key) ? '#056FD4' : '#15803D' }}>{rateOf(m.key) ? `${rateOf(m.key)} cr ${unitOf(m.key)}` : 'free'}</b></div>
                   </div>
                   <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 12.5 }} onClick={() => setEditIdx(i)}><Settings2 size={14} /> Configure</button>
                   <Trash2 size={16} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => removeModule(i)} />
                 </div>
               );
             })}
+
+            {/* the price of this composition — the number this screen actually decides (spec §04) */}
+            {modules.length > 0 && (
+              <div style={{ marginTop: 4, padding: '12px 16px', border: '1px solid #E0EDFF', background: '#F8FBFF', borderRadius: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <Coins size={15} color="#056FD4" />
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>This assessment costs <span style={{ color: '#056FD4' }}>{fmtCr(perCandidate)}</span> per fully-evaluated candidate</div>
+                    <div style={{ fontSize: 11.5, color: '#6B7280', marginTop: 2 }}>
+                      {modules.filter((m) => m.key !== 'resume' && rateOf(m.key) > 0).map((m) => `${metaOf(m.key).name} ${rateOf(m.key)}`).concat(proctorRate ? [`Proctoring ${proctorRate}`] : []).join(' + ') || 'no paid modules'} cr
+                      {resumeRate > 0 && <> · resume gate adds <b>{resumeRate} cr</b> per applicant screened</>}
+                    </div>
+                  </div>
+                  {costDelta !== 0 && (
+                    <span className="chip" style={{ background: costDelta > 0 ? '#FEF3C7' : '#DCFCE7', color: costDelta > 0 ? '#B45309' : '#15803D' }}>
+                      {opp.assessment?.version || 'v1'} → {nextVersion}: {costDelta > 0 ? '+' : ''}{costDelta} cr / candidate
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 8 }}>Rates come from the live Cuba rate card — if Cuba changes a rate, this figure moves. Credits are consumed only when a service actually runs.</div>
+              </div>
+            )}
           </div>
 
           {/* weights */}
@@ -157,20 +271,45 @@ export default function AssessmentBuilder() {
               <div style={{ fontSize: 15, fontWeight: 700 }}>Scoring weights &amp; thresholds</div>
               <button className="copilot" onClick={suggestWeights}><Sparkles size={14} /> AI: suggest weights</button>
             </div>
-            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 14 }}>Thresholds = the <b>gate</b> (who clears). Weights = the <b>order</b> (rank). Must total 100%.</div>
-            {weights.map((p, i) => (
-              <div key={p.label + '-' + i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{p.label}</div>
-                <input type="number" value={p.w} onChange={(e) => setWeights((w) => w.map((x, j) => (j === i ? { ...x, w: Number(e.target.value) } : x)))}
-                  style={{ width: 64, padding: '7px 8px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 13, textAlign: 'center', fontFamily: 'inherit' }} />
-                <span style={{ fontSize: 13, color: '#9CA3AF' }}>%</span>
-                <Trash2 size={15} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => setWeights((w) => w.filter((_, j) => j !== i))} />
+            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 14 }}>Thresholds = the <b>gate</b> (who clears). Weights = the <b>order</b> (rank). Must total 100%. Each parameter is matched to a candidate sub-score <b>by name</b>.</div>
+
+            {unmatched.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, color: '#B45309', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+                <span><b>{unmatched.map((u) => u.label).join(', ')}</b> {unmatched.length === 1 ? 'has' : 'have'} no sub-score on any of the {existing.length} already-scored candidate{existing.length === 1 ? '' : 's'} — {unmatched.length === 1 ? 'it counts' : 'they count'} as 0 and would lower every weighted score at once. Remove {unmatched.length === 1 ? 'it' : 'them'}, or keep {unmatched.length === 1 ? 'it' : 'them'} only for candidates evaluated from now on.</span>
               </div>
-            ))}
-            <button className="btn-ghost" style={{ marginTop: 4, fontSize: 12.5 }} onClick={() => setWeights((w) => [...w, { label: 'New parameter', w: 0 }])}>+ Add parameter</button>
+            )}
+
+            {weights.map((p, i) => {
+              const ok = known(p.label);
+              return (
+                <div key={p.label + '-' + i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                  <div style={{ flex: 1, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                    {p.label}
+                    {!ok && <span className="badge" style={{ background: '#FEF3C7', color: '#B45309' }}>no sub-score</span>}
+                  </div>
+                  <input type="number" value={p.w} onChange={(e) => setWeights((w) => w.map((x, j) => (j === i ? { ...x, w: Number(e.target.value) } : x)))}
+                    style={{ width: 64, padding: '7px 8px', border: `1px solid ${ok ? '#E2E8F0' : '#FDE68A'}`, borderRadius: 8, fontSize: 13, textAlign: 'center', fontFamily: 'inherit' }} />
+                  <span style={{ fontSize: 13, color: '#9CA3AF' }}>%</span>
+                  <Trash2 size={15} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => setWeights((w) => w.filter((_, j) => j !== i))} />
+                </div>
+              );
+            })}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+              <select className="input" value="" style={{ width: 'auto', minWidth: 200, padding: '7px 10px', fontSize: 12.5 }}
+                onChange={(e) => { const v = e.target.value; if (!v) return; setWeights((w) => [...w, { label: v, w: 0 }]); }}>
+                <option value="">+ Add parameter…</option>
+                {paramOptions.length === 0 && <option value="" disabled>Every known sub-score is already weighted</option>}
+                {paramOptions.map((k) => <option key={k} value={k}>{k}</option>)}
+              </select>
+              <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>{scoreKeys.length ? 'Only sub-scores this role’s candidates actually carry.' : 'No scored candidates yet — parameters are matched by name when results arrive.'}</span>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTop: '1px solid #F3F4F6', fontSize: 14, fontWeight: 700 }}>
               <span>Total</span><span style={{ color: totalW === 100 ? '#16A34A' : '#DC2626' }}>{totalW}% {totalW === 100 ? '✓' : '— must equal 100%'}</span>
             </div>
+            {saveBlock && <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 8 }}>{saveBlock}</div>}
           </div>
         </div>
       </div>
