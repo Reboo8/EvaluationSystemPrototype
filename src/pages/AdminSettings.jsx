@@ -604,7 +604,7 @@ function PendingCard({ setTab, nav }) {
         <div className="icon-box" style={{ width: 36, height: 36, background: '#FEF3C7', color: '#B45309' }}><Hourglass size={17} /></div>
         <div>
           <div style={{ fontSize: 15.5, fontWeight: 700 }}>Pending / to be finalised <span style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 500 }}>· {PENDING_ITEMS.length} items from the product spec</span></div>
-          <div style={{ fontSize: 12.5, color: '#6B7280', marginTop: 2 }}>Placeholders for these are marked <PendingChip /> across the portal. Nothing here blocks the prototype; each becomes a locked decision once agreed.</div>
+          <div style={{ fontSize: 12.5, color: '#6B7280', marginTop: 2 }}>Placeholders for these are marked <PendingChip /> across the portal. Nothing here blocks day-to-day use; each becomes a locked decision once agreed.</div>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 18px' }}>

@@ -171,7 +171,7 @@ export default function AdminClientDetail() {
           {isPending && <>
             <PermButton action="client.invite" onClick={doResend}><Mail size={15} /> Resend invite</PermButton>
             <PermButton action="client.invite" style={dangerBtn} disabled={!!c.inviteRevoked} onClick={doRevoke} title={c.inviteRevoked ? 'Already revoked — resend to issue a new invite' : undefined}><Ban size={15} /> Revoke invite</PermButton>
-            <PermButton action="client.invite" onClick={doActivate} title="Prototype-only: simulates the owner clicking the activation link"><Sparkles size={15} /> Simulate owner activation <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9', marginLeft: 2 }}>prototype</span></PermButton>
+            <PermButton action="client.invite" onClick={doActivate} title="Demo shortcut: simulates the owner clicking the activation link"><Sparkles size={15} /> Simulate owner activation <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9', marginLeft: 2 }}>demo</span></PermButton>
           </>}
           {isActive && <>
             <PermButton action="impersonate" onClick={doImpersonate}><LogIn size={15} /> Impersonate</PermButton>

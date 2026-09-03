@@ -106,7 +106,7 @@ export default function AdminShell() {
                     </div>
 
                     <div style={{ padding: '10px 16px 2px', fontSize: 11, fontWeight: 700, letterSpacing: '.6px', textTransform: 'uppercase', color: '#6B7280' }}>
-                      Switch role <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: '#9CA3AF' }}>(prototype demo — RBAC is action-level)</span>
+                      Switch role <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: '#9CA3AF' }}>(permissions are checked per action)</span>
                     </div>
                     {ADMIN_ROLES.map((r) => { const on = r.id === currentAdmin.role; return (
                       <div key={r.id} onClick={() => switchRole(r)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 16px', cursor: 'pointer', background: on ? '#F8FBFF' : '#fff' }}>
@@ -121,7 +121,7 @@ export default function AdminShell() {
                     ); })}
 
                     <div style={{ height: 1, background: '#E2E8F0', margin: '6px 0' }} />
-                    <MenuRow icon={User} label="Profile (personal settings)" sub="Profile = personal · Settings = platform" onClick={() => { setMenu(false); toast('Profile (personal settings) — not part of this prototype'); }} />
+                    <MenuRow icon={User} label="Profile (personal settings)" sub="Profile = personal · Settings = platform" onClick={() => { setMenu(false); toast('Personal settings are coming soon'); }} />
                     {can('settings.manage') && <MenuRow icon={Settings} label="Platform settings" sub="Cuba platform configuration" onClick={() => { setMenu(false); nav('/admin/settings'); }} />}
                     <div style={{ height: 1, background: '#E2E8F0', margin: '6px 0' }} />
                     <MenuRow icon={LogOut} label="Exit admin" sub="Back to the client portal" danger onClick={() => { setMenu(false); nav('/'); }} />

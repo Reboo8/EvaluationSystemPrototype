@@ -75,7 +75,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/admin/compliance" element={<AdminCompliance />} />
             <Route path="/admin/analytics" element={<AdminAnalytics />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
-            {/* legacy routes from the plan-based prototype */}
+            {/* legacy routes from the plan-based version */}
             <Route path="/admin/plans" element={<Navigate to="/admin/credits?tab=ratecard" replace />} />
             <Route path="/admin/billing" element={<Navigate to="/admin/credits" replace />} />
             <Route path="/admin/catalog" element={<Navigate to="/admin/platform" replace />} />

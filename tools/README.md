@@ -1,4 +1,4 @@
-# Prototype workflow tests (headless Chrome, no extra dependencies)
+# Workflow tests (headless Chrome, no extra dependencies)
 
 ```
 npm run build && npx vite preview --port 4173 &

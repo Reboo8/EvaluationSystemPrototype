@@ -92,7 +92,7 @@ export default function Billing() {
     }, 600);
   };
   const doThreshold = (n) => { setClientLowBalanceThreshold(n); show(`Low-balance alert set to ${fmtCr(n)} available`); };
-  const doInvoice = (p) => show(`Invoice ${p.reference || p.id} — PDF download started (prototype)`);
+  const doInvoice = (p) => show(`Invoice ${p.reference || p.id} — PDF download started`);
   const doRetryPayment = (p) => { setMethod(p.method === 'Card' ? 'Card' : 'Razorpay'); setCustom(String(p.credits)); scrollToBuy(); show(`Retrying ${p.id} — review the order and pay again`); };
 
   return (

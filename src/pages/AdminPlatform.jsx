@@ -258,7 +258,7 @@ function AddModuleModal({ onClose, toast }) {
       <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Case Study" onKeyDown={(e) => e.key === 'Enter' && submit()} />
       <label className="field-label" style={{ marginTop: 12 }}>Scoring</label>
       <select className="input" value={scoring} onChange={(e) => setScoring(e.target.value)}>{SCORING_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}</select>
-      <div className="hint">Scoring method is informational for the prototype; safe defaults can be edited once the module ships.</div>
+      <div className="hint">Scoring method is informational; safe defaults can be edited once the module ships.</div>
     </Modal>
   );
 }

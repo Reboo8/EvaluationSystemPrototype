@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the Cuba prototype to Cloud Run in Singapore (asia-southeast1) and map cuba.reboo8.com.
+# Deploy Cuba to Cloud Run in Singapore (asia-southeast1) and map cuba.reboo8.com.
 # Usage:  ./deploy/gcp.sh              (uses VITE_GROQ_API_KEY from the environment or ./.env if present)
 #         PROJECT=reboo8prod ./deploy/gcp.sh
 # Re-run any time: every step is idempotent. Needs: gcloud auth login (owner/editor on the project).
@@ -10,7 +10,7 @@ PROJECT="${PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
 [[ -n "$PROJECT" ]] || { echo "! no project — run: gcloud config set project reboo8prod"; exit 1; }
 REGION="${REGION:-asia-southeast1}"
 REPO="${REPO:-cuba}"
-SERVICE="${SERVICE:-cuba-prototype}"
+SERVICE="${SERVICE:-cuba}"
 DOMAIN="${DOMAIN:-cuba.reboo8.com}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/${SERVICE}"
 STAGING="gs://${PROJECT}-cloudbuild-${REGION}"
@@ -38,7 +38,7 @@ fi
 
 echo "▶ artifact registry repo + cleanup policy (keep 5 newest, delete >30 days)"
 gcloud artifacts repositories describe "$REPO" --location "$REGION" --project "$PROJECT" >/dev/null 2>&1 \
-  || gcloud artifacts repositories create "$REPO" --repository-format docker --location "$REGION" --project "$PROJECT" --description "Cuba prototype images" --quiet
+  || gcloud artifacts repositories create "$REPO" --repository-format docker --location "$REGION" --project "$PROJECT" --description "Cuba images" --quiet
 gcloud artifacts repositories set-cleanup-policies "$REPO" --location "$REGION" --project "$PROJECT" --policy deploy/ar-cleanup.json --quiet >/dev/null \
   || echo "  ! cleanup policy not applied (non-fatal)"
 

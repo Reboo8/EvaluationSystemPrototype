@@ -1,5 +1,5 @@
 // Real AI via Groq's OpenAI-compatible API, with a simulated fallback when no key is set.
-// To enable REAL AI: create prototype/.env with  VITE_GROQ_API_KEY=your_key  and restart dev server.
+// Real AI needs VITE_GROQ_API_KEY in .env (restart the dev server after changing it).
 const KEY = import.meta.env.VITE_GROQ_API_KEY;
 const URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = 'llama-3.3-70b-versatile';

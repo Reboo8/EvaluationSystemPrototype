@@ -1,5 +1,5 @@
-# Cuba prototype — static Vite build served by nginx on Cloud Run (asia-southeast1).
-# Build:  docker build --build-arg VITE_GROQ_API_KEY=... -t cuba-prototype .
+# Cuba — static Vite build served by nginx on Cloud Run (asia-southeast1).
+# Build:  docker build --build-arg VITE_GROQ_API_KEY=... -t cuba .
 # The Groq key is baked into the client bundle at build time (the app calls Groq from the browser).
 
 FROM node:22-alpine AS build

@@ -574,7 +574,7 @@ function OverridesTab() {
                     <td>{o.oppTitle}</td>
                     <td style={{ fontWeight: 600 }}>{o.candidate}{cid
                       ? <div style={{ fontSize: 11.5, color: '#056FD4', cursor: 'pointer', fontWeight: 600, marginTop: 2 }} onClick={() => nav(`/admin/compliance?tab=provenance&cand=${cid}`)}>Provenance →</div>
-                      : <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }} title="This client's candidate records are not held in the prototype store, so the frozen configuration cannot be replayed here.">Provenance not captured for this client</div>}</td>
+                      : <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }} title="This client's candidate records are not held in this workspace, so the frozen configuration cannot be replayed here.">Provenance not captured for this client</div>}</td>
                     <td><span className="chip" style={{ background: '#F3F4F6', color: '#374151', border: '1px dashed #D1D5DB' }}>{o.original}</span><div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3 }}>preserved</div></td>
                     <td><span className="chip" style={{ background: '#FEF3C7', color: '#B45309' }}>{o.override}</span></td>
                     <td style={{ fontSize: 12.5 }}>{o.actor}</td>

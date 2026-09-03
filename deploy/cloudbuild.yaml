@@ -4,7 +4,7 @@
 substitutions:
   _REGION: asia-southeast1
   _REPO: cuba
-  _SERVICE: cuba-prototype
+  _SERVICE: cuba
   _VITE_GROQ_API_KEY: ''
 steps:
   - name: gcr.io/cloud-builders/docker

@@ -1,6 +1,6 @@
-# Deploying the Cuba prototype to Google Cloud (Singapore)
+# Deploying Cuba to Google Cloud (Singapore)
 
-Target: Cloud Run service `cuba-prototype` in `asia-southeast1`, image built by Cloud Build into Artifact Registry repo `cuba`, mapped to **cuba.reboo8.com**.
+Target: Cloud Run service `cuba` in `asia-southeast1`, image built by Cloud Build into Artifact Registry repo `cuba`, mapped to **cuba.reboo8.com**.
 
 ```
 gcloud auth login                 # once per session (admin@reboo8.com, project reboo8prod)

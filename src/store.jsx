@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useMemo } from 'react';
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Cuba prototype store — in-memory, resets on refresh (assessment templates persist).
+   Cuba client store — in-memory with localStorage persistence for templates, invites, pool and rank lists.
 
    Two worlds share this store:
      • CLIENT portal  (Shell.jsx)      — scoped to `currentClientId` (Northstar Group, or the impersonated client)
