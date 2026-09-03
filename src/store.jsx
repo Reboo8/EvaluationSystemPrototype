@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, useMemo } from 'react';
    Cuba prototype store — in-memory, resets on refresh (assessment templates persist).
 
    Two worlds share this store:
-     • CLIENT portal  (Shell.jsx)      — scoped to `currentClientId` (Flipkart, or the impersonated client)
+     • CLIENT portal  (Shell.jsx)      — scoped to `currentClientId` (Northstar Group, or the impersonated client)
      • ADMIN portal   (AdminShell.jsx) — Cuba platform operator control plane
 
    Commercial model (locked): sales-led + credit wallet. NO subscription plans.
@@ -37,6 +37,66 @@ export const DEFAULTS = {
 export const fmtCr = (n) => `${(Number(n) || 0).toLocaleString('en-IN')} cr`;
 export const fmtMoney = (n) => `${CURRENCY.symbol}${(Number(n) || 0).toLocaleString('en-IN')}`;
 export const initials = (n = '') => n.split(' ').filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+
+/* ──────────────────────────── candidate invites + resume gate (shared by the portal and the candidate run-time) ────────────────────────────
+   The assessment LINK is the candidate's entry: time-bound, resumable, one attempt. It is issued only after the resume gate passes. */
+export const hashNum = (str) => { let h = 2166136261; const t = String(str); for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } h ^= h >>> 16; h = Math.imul(h, 0x45d9f3b); h ^= h >>> 16; return h >>> 0; };
+export const fmtDate = (ms) => { try { return new Date(Number(ms)).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return '—'; } };
+export const fmtDateTime = (ms) => { try { const d = new Date(Number(ms)); return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) + ', ' + d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }); } catch { return '—'; } };
+export const INVITE_STATUS = {
+  SENT:        { label: 'Link sent',    bg: '#DBEAFE', fg: '#1E40AF' },
+  OPENED:      { label: 'Opened',       bg: '#EDE9FE', fg: '#6D28D9' },
+  IN_PROGRESS: { label: 'In progress',  bg: '#FEF3C7', fg: '#B45309' },
+  SUBMITTED:   { label: 'Submitted',    bg: '#DCFCE7', fg: '#15803D' },
+  EXPIRED:     { label: 'Expired',      bg: '#F3F4F6', fg: '#6B7280' },
+  RENEWED:     { label: 'Link replaced', bg: '#F3F4F6', fg: '#6B7280' },
+  ABANDONED:   { label: 'Withdrew',     bg: '#FEE2E2', fg: '#B91C1C' },
+  DECLINED:    { label: 'Declined',     bg: '#F3F4F6', fg: '#6B7280' },
+};
+export const INVITE_SOURCE = { email: 'Invited by email', careers: 'Applied on careers page', sourced: 'Sourced resume', rescue: 'Rescued from pool', retake: 'Retake', preview: 'Preview' };
+export const isInviteExpired = (inv) => !!inv && !['SUBMITTED', 'DECLINED', 'ABANDONED', 'RENEWED', 'EXPIRED'].includes(inv.status) && Date.now() > (Number(inv.expiresAt) || 0);
+export const inviteStatusOf = (inv) => (isInviteExpired(inv) ? 'EXPIRED' : inv?.status || 'SENT');
+export const inviteUrl = (token) => `${window.location.origin}${window.location.pathname}#/a/${token}`;
+export const careersUrl = (oppId) => `${window.location.origin}${window.location.pathname}#/careers/${oppId}`;
+export const nameFromEmail = (e = '') => {
+  const local = String(e).trim().split('@')[0] || '';
+  const parts = local.split(/[._\-+]+/).filter(Boolean).map((x) => x.replace(/\d+$/, '')).filter(Boolean);
+  return (parts.length ? parts : [local]).map((x) => x[0].toUpperCase() + x.slice(1).toLowerCase()).join(' ') || 'Candidate';
+};
+export const emailFromName = (n = '') => String(n).replace(/^Dr\.?\s*/i, '').toLowerCase().replace(/[^a-z ]/g, '').trim().replace(/\s+/g, '.') + '@email.com';
+const DEFAULT_RESUME_PARAMS = [{ label: 'Skills match', weight: 50, min: 0 }, { label: 'Work experience', weight: 50, min: 0 }];
+
+/* The resume gate. Pure: (opportunity, applicant) → { fit, pass, reason, threshold, params, matched, missing }.
+   Reads the resume module exactly as the builder saves it — weighted parameters, per-parameter minimum, pass threshold,
+   must-have skills + knockout. Skill match is a real text match when resume text is available; everything else is a
+   stable per-applicant score (same applicant → same verdict), so the analyser can be swapped in later without UI changes. */
+export function screenResume(opp, { name = '', email = '', resumeText = '' } = {}, { fitThreshold = 60 } = {}) {
+  const m = (opp?.assessment?.modules || []).find((x) => x.key === 'resume') || {};
+  const params = (m.resumeParams && m.resumeParams.length ? m.resumeParams : DEFAULT_RESUME_PARAMS);
+  const gateNum = parseInt((/(\d{2,3})/.exec(m.gate || '') || [])[1], 10);
+  const threshold = Number(m.passThreshold) || (gateNum >= 30 && gateNum <= 100 ? gateNum : 0) || fitThreshold;
+  const must = (m.skills && m.skills.length ? m.skills : (opp?.skills || []).slice(0, 3)).filter(Boolean);
+  const seed = `${name}|${email}`.toLowerCase();
+  const text = String(resumeText || '').toLowerCase();
+  const hasText = text.length > 80;
+  const hits = must.map((skill) => ({ skill, found: hasText ? text.includes(String(skill).toLowerCase()) : (hashNum(seed + '|' + skill) % 100) >= 7 }));
+  const matched = hits.filter((h) => h.found).map((h) => h.skill);
+  const missing = hits.filter((h) => !h.found).map((h) => h.skill);
+  const scored = params.map((p) => {
+    const isSkills = /skill/i.test(p.label) && must.length > 0;
+    const score = isSkills ? Math.round((matched.length / must.length) * 100) : 48 + (hashNum(seed + '|' + p.label) % 49);
+    return { label: p.label, weight: Number(p.weight) || 0, min: Number(p.min) || 0, score };
+  });
+  const totalW = scored.reduce((a, b) => a + b.weight, 0) || 100;
+  const fit = Math.round(scored.reduce((a, b) => a + b.weight * b.score, 0) / totalW);
+  const knockout = (m.knockout ?? true) && missing.length > 0;
+  const belowMin = scored.filter((p) => p.min > 0 && p.score < p.min);
+  const pass = !knockout && belowMin.length === 0 && fit >= threshold;
+  const reason = knockout ? `Missing must-have: ${missing[0]}`
+    : belowMin.length ? `${belowMin[0].label} below minimum (${belowMin[0].score} < ${belowMin[0].min})`
+    : fit < threshold ? `Below fit threshold (${threshold})` : undefined;
+  return { fit, pass, reason, threshold, params: scored, matched, missing };
+}
 
 export const CLIENT_STATUS = {
   INVITE_PENDING: { label: 'Invite pending', bg: '#DBEAFE', fg: '#1E40AF', desc: 'Organization exists; primary owner has not activated yet.' },
@@ -413,8 +473,8 @@ const mkWallet = (balance, reserved = 0, extra = {}) => ({ balance, reserved, ov
 const mkUsage = (o = {}) => ({ candidates: 0, evaluations: 0, resumeAnalyses: 0, assessmentAttempts: 0, assessmentCompletions: 0, interviews: 0, interviewMinutes: 0, proctoringSessions: 0, failed: 0, creditsConsumed: 0, ...o });
 
 const SEED_CLIENTS = [
-  { id: 'cl1', tenantId: 'org_7f3a9c', name: 'Flipkart', legalName: 'Flipkart Internet Pvt Ltd', country: 'India', website: 'flipkart.com', industry: 'E-commerce',
-    owner: { name: 'Priya Nair', email: 'hr@flipkart.com', phone: '+91 98450 11223', designation: 'Head of Talent Acquisition' },
+  { id: 'cl1', tenantId: 'org_7f3a9c', name: 'Northstar Group', legalName: 'Northstar Group Pvt Ltd', country: 'India', website: 'northstargroup.com', industry: 'Technology & Services',
+    owner: { name: 'Priya Nair', email: 'hr@northstargroup.com', phone: '+91 98450 11223', designation: 'Head of Talent Acquisition' },
     billing: { currency: 'INR', gstin: '29AABCF1234A1Z5', address: 'Bengaluru, KA' }, salesOwner: 'Rahul Bose (AE)', notes: 'Enterprise deal · quarterly credit purchases.',
     status: 'ACTIVE', since: '12 May 2026', wallet: mkWallet(12400, 800, { lastTopUp: '12 Aug 2026' }),
     usage: mkUsage({ candidates: 310, evaluations: 78, resumeAnalyses: 310, assessmentAttempts: 95, assessmentCompletions: 88, interviews: 24, interviewMinutes: 460, proctoringSessions: 88, failed: 3, creditsConsumed: 8400 }),
@@ -582,12 +642,12 @@ const SEED_INTEGRATIONS = [
 
 /* ──────────────────────────── ADMIN: audit, compliance, provenance ──────────────────────────── */
 const SEED_AUDIT = [
-  { id: 'au120', when: '26 Aug 2026 09:41', actor: 'System', role: 'system', category: 'Credits', action: 'Settlement posted', resource: 'LX-10262 · Flipkart', clientId: 'cl1' },
-  { id: 'au119', when: '26 Aug 2026 09:12', actor: 'Flipkart · Recruiter', role: 'client', category: 'Scoring', action: 'Candidate cleared', resource: 'Karan Singh · Software Developer', clientId: 'cl1' },
+  { id: 'au120', when: '26 Aug 2026 09:41', actor: 'System', role: 'system', category: 'Credits', action: 'Settlement posted', resource: 'LX-10262 · Northstar Group', clientId: 'cl1' },
+  { id: 'au119', when: '26 Aug 2026 09:12', actor: 'Northstar Group · Recruiter', role: 'client', category: 'Scoring', action: 'Candidate cleared', resource: 'Karan Singh · Software Developer', clientId: 'cl1' },
   { id: 'au118', when: '25 Aug 2026 18:20', actor: 'System', role: 'system', category: 'Credits', action: 'Overdraft used to finish running interview', resource: 'LX-10259 · NovaPay', clientId: 'cl5' },
   { id: 'au117', when: '25 Aug 2026 11:31', actor: 'Support Admin', role: 'support', category: 'Recovery', action: 'Allowed retake', resource: 'JOB-8807 · Rohit Verma', clientId: 'cl1', reason: 'Provider timeout — technical failure' },
   { id: 'au116', when: '25 Aug 2026 11:30', actor: 'Support Admin', role: 'support', category: 'Credits', action: 'Reversed credits (+80)', resource: 'JOB-8807 · Rohit Verma', clientId: 'cl1', reason: 'Provider timeout — technical failure' },
-  { id: 'au115', when: '24 Aug 2026 17:05', actor: 'Flipkart · Hiring Manager', role: 'client', category: 'Override', action: 'Human override: REVIEW → CLEARED', resource: 'Sneha Reddy · Software Developer', clientId: 'cl1', reason: 'Proctoring flag was a wall poster; verified by support' },
+  { id: 'au115', when: '24 Aug 2026 17:05', actor: 'Northstar Group · Hiring Manager', role: 'client', category: 'Override', action: 'Human override: REVIEW → CLEARED', resource: 'Sneha Reddy · Software Developer', clientId: 'cl1', reason: 'Proctoring flag was a wall poster; verified by support' },
   { id: 'au114', when: '23 Aug 2026 12:00', actor: 'Finance Admin', role: 'finance', category: 'Credits', action: 'Payment reversal (−3,000)', resource: 'PAY-3028 · Orbit Logistics', clientId: 'cl7', reason: 'Chargeback' },
   { id: 'au113', when: '22 Aug 2026 09:00', actor: 'Finance Admin', role: 'finance', category: 'Credits', action: 'Manual adjustment (+500)', resource: 'Acme Cloud', clientId: 'cl2', reason: 'Goodwill for Aug 19 latency incident' },
   { id: 'au112', when: '20 Aug 2026 11:15', actor: 'Operations Admin', role: 'ops', category: 'Client', action: 'Created organization + invited owner', resource: 'BrightLearn', clientId: 'cl6' },
@@ -596,9 +656,9 @@ const SEED_AUDIT = [
   { id: 'au109', when: '18 Aug 2026 10:00', actor: 'Acme Cloud · Admin', role: 'client', category: 'Assessment config', action: 'Changed thresholds + weights', resource: 'Backend Engineer · asmt v4', clientId: 'cl2' },
   { id: 'au108', when: '15 Aug 2026 14:30', actor: 'Super Admin', role: 'super', category: 'Client', action: 'Started offboarding', resource: 'Helix Retail', clientId: 'cl8', reason: 'Client-requested closure (hiring freeze)' },
   { id: 'au107', when: '14 Aug 2026 09:20', actor: 'Operations Admin', role: 'ops', category: 'Module', action: 'Rollout → Selected Clients', resource: 'Simulation (beta)' },
-  { id: 'au106', when: '12 Aug 2026 11:00', actor: 'Finance Admin', role: 'finance', category: 'Credits', action: 'Recorded offline payment + credits (+10,000)', resource: 'PAY-3037 · Flipkart', clientId: 'cl1' },
+  { id: 'au106', when: '12 Aug 2026 11:00', actor: 'Finance Admin', role: 'finance', category: 'Credits', action: 'Recorded offline payment + credits (+10,000)', resource: 'PAY-3037 · Northstar Group', clientId: 'cl1' },
   { id: 'au105', when: '10 Aug 2026 15:00', actor: 'Support Admin', role: 'support', category: 'Impersonation', action: 'Impersonated client workspace', resource: 'Meridian Hospitals', clientId: 'cl3', reason: 'Reproduce resume upload issue (TKT-1049)' },
-  { id: 'au104', when: '08 Aug 2026 12:00', actor: 'Compliance Admin', role: 'compliance', category: 'Data request', action: 'Deletion request fulfilled', resource: 'candidate #4821 · Flipkart', clientId: 'cl1' },
+  { id: 'au104', when: '08 Aug 2026 12:00', actor: 'Compliance Admin', role: 'compliance', category: 'Data request', action: 'Deletion request fulfilled', resource: 'candidate #4821 · Northstar Group', clientId: 'cl1' },
   { id: 'au103', when: '05 Aug 2026 10:00', actor: 'Super Admin', role: 'super', category: 'Integration', action: 'Set fallback provider', resource: 'LLM providers → Anthropic Claude' },
   { id: 'au102', when: '01 Aug 2026 09:00', actor: 'Super Admin', role: 'super', category: 'Settings', action: 'Updated low-balance default → 500 cr', resource: 'Settings · Credits & Billing' },
 ];
@@ -618,7 +678,7 @@ const SEED_CONSENT = [
 ];
 const SEED_RETENTION = DATA_CATEGORIES.map((category, i) => ({ category, days: [365, 365, 180, 180, 90, 30, 730][i], legalHoldable: true, note: i === 5 ? 'Biometric: delete at earliest' : '' }));
 const SEED_OVERRIDES = [
-  { id: 'ov3', when: '24 Aug 2026 17:05', clientId: 'cl1', oppId: '1', oppTitle: 'Software Developer', candidate: 'Sneha Reddy', original: 'REVIEW (integrity 71)', override: 'CLEARED', actor: 'Flipkart · Hiring Manager', reason: 'Proctoring flag was a wall poster; verified by support (TKT-1062)' },
+  { id: 'ov3', when: '24 Aug 2026 17:05', clientId: 'cl1', oppId: '1', oppTitle: 'Software Developer', candidate: 'Sneha Reddy', original: 'REVIEW (integrity 71)', override: 'CLEARED', actor: 'Northstar Group · Hiring Manager', reason: 'Proctoring flag was a wall poster; verified by support (TKT-1062)' },
   { id: 'ov2', when: '19 Aug 2026 10:20', clientId: 'cl2', oppId: 'a1', oppTitle: 'Support Agent (Voice)', candidate: 'Meera S.', original: 'REJECTED (SJT 58)', override: 'ADVANCED to interview', actor: 'Acme Cloud · Recruiter', reason: 'Strong prior BPO experience; SJT attempt interrupted (JOB-8806)' },
   { id: 'ov1', when: '02 Aug 2026 15:00', clientId: 'cl3', oppId: '3', oppTitle: 'General Physician', candidate: 'Dr. S. Banerjee', original: 'RESUME KNOCKOUT (license not found)', override: 'RESCUED to assessment', actor: 'Meridian · Owner', reason: 'License number typo — verified on council registry' },
 ];
@@ -642,7 +702,7 @@ const SEED_ADMINS = [
 const N = (id, when, category, severity, title, detail, roles, to, extra = {}) => ({ id, when, category, severity, title, detail, roles, to, read: false, ...extra });
 const SEED_NOTIFS = [
   N('nt1', '26 Aug 2026 12:06', 'Evaluation / Operations', 'CRITICAL', 'Stuck AI interview — Ishaan Roy (Acme Cloud)', 'No audio for 41 min · 80 cr on hold · JOB-8812. Resume or reset the attempt.', ['super', 'ops', 'support'], '/admin/support?tab=jobs'),
-  N('nt2', '26 Aug 2026 09:36', 'Evaluation / Operations', 'WARNING', 'Score pending 22 min — Divya Nair (Flipkart)', 'Judge queue backlog · JOB-8811. Retry processing if it exceeds 30 min.', ['super', 'ops', 'support'], '/admin/support?tab=jobs'),
+  N('nt2', '26 Aug 2026 09:36', 'Evaluation / Operations', 'WARNING', 'Score pending 22 min — Divya Nair (Northstar Group)', 'Judge queue backlog · JOB-8811. Retry processing if it exceeds 30 min.', ['super', 'ops', 'support'], '/admin/support?tab=jobs'),
   N('nt3', '25 Aug 2026 18:21', 'Credits & Billing', 'CRITICAL', 'NovaPay wallet negative: −1,850 cr', 'Overdraft used to finish a running interview. New paid evaluations blocked until top-up. 2 failed card payments this month.', ['super', 'finance'], '/admin/clients/cl5'),
   N('nt4', '25 Aug 2026 16:00', 'Credits & Billing', 'WARNING', 'Meridian Hospitals low balance: 420 cr', 'Below threshold 500 cr · ~5 interviews left. Last top-up 02 Jul.', ['super', 'finance', 'ops'], '/admin/clients/cl3'),
   N('nt5', '25 Aug 2026 16:10', 'Support', 'CRITICAL', 'Urgent ticket TKT-1063 — payment succeeded but credits missing', 'NovaPay · card debited, gateway shows failed. Finance checking pending capture.', ['super', 'support', 'finance'], '/admin/support'),
@@ -728,6 +788,7 @@ export const ROLE_CATALOG = [
 
 /* ──────────────────────────── saved assessment templates (persisted) ──────────────────────────── */
 const TPL_KEY = 'cuba_assessment_templates';
+const INV_KEY = 'cuba_invites';
 const _roleAsmt = (catId, roleId) => { const c = ROLE_CATALOG.find((x) => x.id === catId); const r = c && c.roles.find((x) => x.id === roleId); return r ? r.assessment : { modules: [], weights: [] }; };
 const SEED_TEMPLATES = [
   { id: 'tpl_seed_swe', name: 'Software Developer — standard', createdAt: 'Built-in', ..._roleAsmt('it', 'swe') },
@@ -744,6 +805,9 @@ export function AppProvider({ children }) {
   const [customModules, setCustomModules] = useState([]);
   const [assessmentTemplates, setAssessmentTemplates] = useState(() => { try { const s = JSON.parse(localStorage.getItem(TPL_KEY)); return Array.isArray(s) && s.length ? s : SEED_TEMPLATES; } catch { return SEED_TEMPLATES; } });
   useEffect(() => { try { localStorage.setItem(TPL_KEY, JSON.stringify(assessmentTemplates)); } catch { /* ignore */ } }, [assessmentTemplates]);
+  /* candidate invites persist so an assessment link survives a refresh (resumable) — everything else in the store is in-memory */
+  const [invites, setInvites] = useState(() => { try { const v = JSON.parse(localStorage.getItem(INV_KEY)); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } });
+  useEffect(() => { try { localStorage.setItem(INV_KEY, JSON.stringify(invites)); } catch { /* ignore */ } }, [invites]);
 
   /* ── admin / operator state ── */
   const [clients, setClients] = useState(SEED_CLIENTS);
@@ -767,10 +831,10 @@ export function AppProvider({ children }) {
   const [usageSeries] = useState(SEED_SERIES);
   const [impersonating, setImpersonating] = useState(null);
   const [clientTeam, setClientTeam] = useState([
-    { id: 'u1', name: 'Priya Nair', email: 'hr@flipkart.com', role: 'Owner', status: 'ACTIVE' },
-    { id: 'u2', name: 'Rohan Desai', email: 'rohan.d@flipkart.com', role: 'Recruiter', status: 'ACTIVE' },
-    { id: 'u3', name: 'Meghna Iyer', email: 'meghna.i@flipkart.com', role: 'Hiring Manager', status: 'ACTIVE' },
-    { id: 'u4', name: 'Vikas Jain', email: 'vikas.j@flipkart.com', role: 'Viewer', status: 'INVITED' },
+    { id: 'u1', name: 'Priya Nair', email: 'hr@northstargroup.com', role: 'Owner', status: 'ACTIVE' },
+    { id: 'u2', name: 'Rohan Desai', email: 'rohan.d@northstargroup.com', role: 'Recruiter', status: 'ACTIVE' },
+    { id: 'u3', name: 'Meghna Iyer', email: 'meghna.i@northstargroup.com', role: 'Hiring Manager', status: 'ACTIVE' },
+    { id: 'u4', name: 'Vikas Jain', email: 'vikas.j@northstargroup.com', role: 'Viewer', status: 'INVITED' },
   ]);
 
   /* ── RBAC helpers ── */
@@ -1015,7 +1079,7 @@ export function AppProvider({ children }) {
   const toggleLegalHold = (id, reason) => { const r = dataRequests.find((x) => x.id === id); setDataRequests((l) => l.map((x) => (x.id === id ? { ...x, legalHold: !x.legalHold, holdReason: !x.legalHold ? reason : '' } : x))); addAudit('Data request', `${r?.legalHold ? 'Released' : 'Applied'} legal hold`, r?.subject || id, { clientId: r?.clientId, reason }); };
   const addDataRequest = (type, subject, clientId) => { const id = 'DR-' + (++drSeq); setDataRequests((l) => [{ id, type, subject, clientId, requested: todayStamp(), due: 'in 30 days', status: 'PENDING', legalHold: false }, ...l]); addAudit('Data request', `${type} request logged`, subject, { clientId }); return id; };
   const setRetention = (category, days) => { setSettings((s) => ({ ...s, privacy: { ...s.privacy, retention: s.privacy.retention.map((r) => (r.category === category ? { ...r, days: Number(days) || 0 } : r)) } })); addAudit('Settings', `Retention: ${category} → ${days} days`, 'Data & Privacy'); };
-  const overrideDecision = (oppId, candId, candidateName, original, override, reason, actor = 'Flipkart · Hiring Manager') => {
+  const overrideDecision = (oppId, candId, candidateName, original, override, reason, actor = 'Northstar Group · Hiring Manager') => {
     const opp = opportunities.find((o) => o.id === oppId);
     const id = 'ov' + (++ovSeq);
     setOverrides((l) => [{ id, when: nowStamp(), clientId: currentClientId, oppId, oppTitle: opp?.title || oppId, candidate: candidateName, original, override, actor, reason }, ...l]);
@@ -1046,7 +1110,7 @@ export function AppProvider({ children }) {
     const out = [];
     const hit = (str) => (str || '').toString().toLowerCase().includes(s);
     clients.forEach((c) => { if (hit(c.name) || hit(c.tenantId) || hit(c.owner?.email)) out.push({ type: 'Client', id: c.id, title: c.name, sub: `${CLIENT_STATUS[c.status]?.label} · ${WALLET_STATE[walletOf(c).state]?.label}`, to: '/admin/clients/' + c.id }); });
-    opportunities.forEach((o) => { if (hit(o.title)) out.push({ type: 'Opportunity', id: o.id, title: o.title, sub: `Flipkart · ${o.status}`, to: '/admin/usage?opp=' + o.id }); });
+    opportunities.forEach((o) => { if (hit(o.title)) out.push({ type: 'Opportunity', id: o.id, title: o.title, sub: `Northstar Group · ${o.status}`, to: '/admin/usage?opp=' + o.id }); });
     Object.entries(candidates).forEach(([oid, list]) => list.forEach((c) => { if (hit(c.name)) out.push({ type: 'Candidate', id: c.id, title: c.name, sub: `${opportunities.find((o) => o.id === oid)?.title || oid} · weighted ${c.weighted}`, to: '/admin/compliance?tab=provenance&cand=' + c.id }); }));
     if (can('ticket.view')) tickets.forEach((t) => { if (hit(t.id) || hit(t.subject) || hit(t.candidate)) out.push({ type: 'Support Ticket', id: t.id, title: `${t.id} · ${t.subject}`, sub: `${nameOf(t.clientId)} · ${TICKET_STATUS[t.status]?.label}`, to: '/admin/support?ticket=' + t.id }); });
     if (can('ledger.view')) ledger.forEach((e) => { if (hit(e.id) || hit(e.candidate) || hit(e.ref)) out.push({ type: 'Credit Transaction', id: e.id, title: `${e.id} · ${LEDGER_TYPE[e.type]?.label} ${e.credits > 0 ? '+' : ''}${e.credits}`, sub: `${nameOf(e.clientId)}${e.candidate ? ' · ' + e.candidate : ''}`, to: '/admin/credits?tab=ledger&q=' + e.id }); });
@@ -1111,13 +1175,79 @@ export function AppProvider({ children }) {
   const getOpportunity = (id) => opportunities.find((o) => o.id === id);
   const getCandidates = (id) => candidates[id] || [];
   const getPool = (id) => pool[id] || [];
-  const rescue = (oppId, candId) => setPool((p) => ({ ...p, [oppId]: (p[oppId] || []).map((c) => (c.id === candId ? { ...c, pass: true, rescued: true } : c)) }));
+  /* ── candidate invites: the assessment LINK is the candidate's entry (time-bound, resumable, one attempt) ── */
+  const linkDays = () => Number(settings?.evaluation?.linkExpiryDays) || 7;
+  const fitThresholdDefault = () => Number(settings?.evaluation?.defaultFitThreshold) || 60;
+  const createInvite = (oppId, { name = '', email = '', source = 'email', validDays, fit = null, attemptNo = 1, renewedFrom = null } = {}) => {
+    const opp = opportunities.find((o) => o.id === oppId);
+    const token = 'a' + rnd() + rnd();
+    const now = Date.now();
+    const inv = {
+      token, oppId, oppTitle: opp?.title || '', clientId: opp?.clientId || currentClientId,
+      name: String(name || '').trim(), email: String(email || '').trim().toLowerCase(), source, status: 'SENT',
+      createdAt: now, expiresAt: now + (Number(validDays) || linkDays()) * 86400000,
+      openedAt: null, startedAt: null, submittedAt: null,
+      attemptNo, attemptsAllowed: 1 + (Number(settings?.evaluation?.maxRetakes) || 0),
+      fit, attempt: null, outcome: null, renewedFrom, renewedTo: null,
+    };
+    /* a recruiter preview is throw-away: keep only the newest preview link per opportunity */
+    setInvites((st) => { const next = { ...st }; if (source === 'preview') Object.values(st).forEach((x) => { if (x.source === 'preview' && x.oppId === oppId) delete next[x.token]; }); next[token] = inv; return next; });
+    return inv;
+  };
+  const getInvite = (token) => (token && invites[token]) || null;
+  const invitesFor = (oppId) => Object.values(invites).filter((i) => i.oppId === oppId && i.source !== 'preview').sort((a, b) => b.createdAt - a.createdAt);
+  const patchInvite = (token, patch) => setInvites((st) => (st[token] ? { ...st, [token]: { ...st[token], ...(typeof patch === 'function' ? patch(st[token]) : patch) } } : st));
+  const openInvite = (token) => patchInvite(token, (i) => (i.status === 'SENT' ? { status: 'OPENED', openedAt: Date.now() } : {}));
+  const saveAttempt = (token, attemptPatch = {}) => patchInvite(token, (i) => (['SUBMITTED', 'ABANDONED', 'DECLINED'].includes(i.status) ? {} : { status: 'IN_PROGRESS', startedAt: i.startedAt || Date.now(), attempt: { ...(i.attempt || {}), ...attemptPatch, savedAt: Date.now() } }));
+  const submitInvite = (token, outcome = null) => patchInvite(token, { status: 'SUBMITTED', submittedAt: Date.now(), outcome });
+  const declineInvite = (token) => patchInvite(token, { status: 'DECLINED', declinedAt: Date.now() });
+  const abandonInvite = (token) => patchInvite(token, { status: 'ABANDONED', abandonedAt: Date.now() });
+  const renewInvite = (token) => {
+    const old = invites[token]; if (!old) return null;
+    const inv = createInvite(old.oppId, { name: old.name, email: old.email, source: old.source, fit: old.fit, attemptNo: old.attemptNo, renewedFrom: token });
+    patchInvite(token, { status: 'RENEWED', renewedTo: inv.token });
+    addAudit('Candidate', 'New assessment link issued', `${old.name || old.email} · ${old.oppTitle}`, { clientId: old.clientId, actor: 'System', role: 'system', reason: 'Previous link expired or was replaced' });
+    return inv;
+  };
+  /* one applicant through the resume gate → pool row (+ link when they clear) */
+  const screenApplicant = (opp, a, { preview = false } = {}) => {
+    const screen = screenResume(opp, a, { fitThreshold: fitThresholdDefault() });
+    const row = { id: 'pl_' + rnd(), name: a.name, email: a.email, source: a.source, fit: screen.fit, pass: screen.pass, appliedAt: todayStamp(), matched: screen.matched, missing: screen.missing, ...(screen.reason ? { reason: screen.reason } : {}) };
+    let invite = null;
+    if (screen.pass) { invite = createInvite(opp.id, { name: a.name, email: a.email, source: preview ? 'preview' : a.source, fit: screen }); row.inviteToken = invite.token; }
+    return { screen, row, invite };
+  };
+  /* careers page: apply → resume gate → link (pass) or pool with a reason (soft reject) */
+  const applyToOpportunity = (oppId, { name, email, phone = '', resumeName = '', resumeText = '', preview = false } = {}) => {
+    const opp = opportunities.find((o) => o.id === oppId); if (!opp) return null;
+    const { screen, row, invite } = screenApplicant(opp, { name, email, phone, resumeName, resumeText, source: 'careers' }, { preview });
+    if (!preview) {
+      const cid = opp.clientId || currentClientId;
+      const r = rateOf('resume');
+      if (r > 0) consumeCredits(cid, r, { oppId, oppTitle: opp.title, candidate: name, module: 'Resume Analyser', usage: '1 candidate', rate: `${r} cr / candidate` });
+      recordUsage(cid, { candidates: 1, resumeAnalyses: 1 });
+      setPool((p) => ({ ...p, [oppId]: [...(p[oppId] || []), row] }));
+      setOpportunities((list) => list.map((o) => (o.id === oppId ? { ...o, inPipeline: (o.inPipeline || 0) + 1, funnel: { ...(o.funnel || {}), applied: (o.funnel?.applied || 0) + 1, screening: (o.funnel?.screening || 0) + (screen.pass ? 1 : 0) } } : o)));
+      addAudit('Candidate', screen.pass ? 'Applied · cleared resume gate · link sent' : 'Applied · soft-rejected to pool', `${name} · ${opp.title}`, { clientId: cid, actor: 'System', role: 'system', reason: screen.reason });
+    }
+    return { screen, invite };
+  };
+  /* rescue from the pool = a recruiter override of the gate: issue the link, keep the original reason on record */
+  const rescue = (oppId, candId) => {
+    const row = (pool[oppId] || []).find((c) => c.id === candId);
+    const opp = opportunities.find((o) => o.id === oppId);
+    if (!row || !opp) return null;
+    const inv = createInvite(oppId, { name: row.name, email: row.email || emailFromName(row.name), source: 'rescue', fit: { fit: row.fit, pass: true, reason: row.reason, rescued: true } });
+    setPool((p) => ({ ...p, [oppId]: (p[oppId] || []).map((c) => (c.id === candId ? { ...c, pass: true, rescued: true, inviteToken: inv.token } : c)) }));
+    addAudit('Override', 'Rescued from resume gate — assessment link sent', `${row.name} · ${opp.title}`, { clientId: opp.clientId || currentClientId, actor: `${currentClient?.name || 'Client'} · Recruiter`, role: 'client', reason: row.reason || 'Recruiter override' });
+    return inv;
+  };
 
   /* ── the PRODUCT outcome (not the money trail): a finished candidate lands on the client's Rank List ── */
-  const recordCandidateResult = (oppId, { name, scores = {}, cefr = 'B2', wpm = 0, exp = '—', minutes = 0 } = {}) => {
+  const recordCandidateResult = (oppId, { name, email = '', inviteToken = null, source = '', scores = {}, cefr = 'B2', wpm = 0, exp = '—', minutes = 0 } = {}) => {
     const opp = opportunities.find((o) => o.id === oppId); if (!opp) return null;
     const id = 'live_' + rnd();
-    const base = { id, name: name || 'Candidate', cefr, wpm, exp, clearedAt: todayStamp(), scores: { ...scores }, minutes };
+    const base = { id, name: name || 'Candidate', email, inviteToken, source, cefr, wpm, exp, clearedAt: todayStamp(), scores: { ...scores }, minutes };
     const weights = (opp.assessment?.weights || []).filter((w) => base.scores[w.label] != null);
     const row = { ...base, weighted: weightedScore(base, weights), provenance: buildProvenance(opp, base) };
     setCandidates((c) => ({ ...c, [oppId]: [...(c[oppId] || []), row] }));
@@ -1134,30 +1264,26 @@ export function AppProvider({ children }) {
   };
   const updateAssessment = (id, assessment) => setOpportunities((list) => list.map((o) => (o.id === id ? { ...o, assessment: { ...assessment, version: 'v' + ((parseInt((o.assessment?.version || 'v1').slice(1), 10) || 1) + 1) } } : o)));
   const setOppStatus = (id, status) => setOpportunities((list) => list.map((o) => (o.id === id ? { ...o, status } : o)));
-  const sendAssessment = (id, addedApplicants = 0) => {
-    setOpportunities((list) => list.map((o) => (o.id === id
-      ? { ...o, sent: true, inPipeline: (o.inPipeline || 0) + addedApplicants, funnel: { ...(o.funnel || {}), applied: (o.funnel?.applied || 0) + addedApplicants, screening: (o.funnel?.screening || 0) + addedApplicants } }
-      : o)));
-    const opp = getOpportunity(id);
-    if (addedApplicants > 0 && opp) {
-      const r = rateOf('resume');
-      consumeCredits(currentClientId, addedApplicants * r, { oppId: id, oppTitle: opp.title, candidate: `${addedApplicants} applicants`, module: 'Resume Analyser', usage: `${addedApplicants} candidates`, rate: `${r} cr / candidate` });
-      recordUsage(currentClientId, { candidates: addedApplicants, resumeAnalyses: addedApplicants });
-      /* the resume gate actually runs on every applicant: ~60% clear, the rest are soft-rejected WITH a reason (rescuable from the Pool) */
-      const resumeMod = (opp.assessment?.modules || []).find((m) => m.key === 'resume');
-      const gate = Number(resumeMod?.passThreshold) || 60;
-      const must = (resumeMod?.skills || opp.skills || [])[0];
-      const rows = Array.from({ length: addedApplicants }, (_, i) => {
-        const nm = POOL_NAMES[(poolNameSeq++) % POOL_NAMES.length];
-        const pass = i % 5 !== 1 && i % 5 !== 3; // 3 of 5 clear
-        const fit = pass ? Math.min(96, gate + 4 + ((i * 7) % 26)) : Math.max(28, gate - 3 - ((i * 11) % 22));
-        const reason = pass ? undefined : (i % 10 === 3 && must ? `Missing must-have: ${must}` : i % 10 === 8 ? 'Skill not detected (resume formatting)' : `Below fit threshold (${gate})`);
-        return { id: 'pl_' + rnd(), name: nm, fit, pass, ...(reason ? { reason } : {}) };
-      });
-      const passed = rows.filter((r) => r.pass).length;
-      setPool((p) => ({ ...p, [id]: [...(p[id] || []), ...rows] }));
-      setOpportunities((list) => list.map((o) => (o.id === id ? { ...o, funnel: { ...(o.funnel || {}), screening: (o.funnel?.screening || 0) - addedApplicants + passed } } : o)));
-    }
+  /* Send Assessment: every applicant hits the resume gate NOW; those who clear get a link, the rest go to the pool with a reason */
+  const sendAssessment = (id, { emails = [], sourced = 0, careerPage = false } = {}) => {
+    const opp = opportunities.find((o) => o.id === id); if (!opp) return { invites: [], rows: [], passed: 0, rejected: 0 };
+    const applicants = [
+      ...emails.map((e) => ({ name: nameFromEmail(e), email: String(e).trim().toLowerCase(), source: 'email' })),
+      ...Array.from({ length: Number(sourced) || 0 }, () => { const nm = POOL_NAMES[(poolNameSeq++) % POOL_NAMES.length]; return { name: nm, email: emailFromName(nm), source: 'sourced' }; }),
+    ];
+    const n = applicants.length;
+    setOpportunities((list) => list.map((o) => (o.id === id ? { ...o, sent: true, careersPublished: !!careerPage || !!o.careersPublished, inPipeline: (o.inPipeline || 0) + n, funnel: { ...(o.funnel || {}), applied: (o.funnel?.applied || 0) + n } } : o)));
+    if (!n) return { invites: [], rows: [], passed: 0, rejected: 0 };
+    const cid = opp.clientId || currentClientId;
+    const r = rateOf('resume');
+    if (r > 0) consumeCredits(cid, n * r, { oppId: id, oppTitle: opp.title, candidate: `${n} applicants`, module: 'Resume Analyser', usage: `${n} candidates`, rate: `${r} cr / candidate` });
+    recordUsage(cid, { candidates: n, resumeAnalyses: n });
+    const made = [], rows = [];
+    applicants.forEach((a) => { const { row, invite } = screenApplicant(opp, a); rows.push(row); if (invite) made.push(invite); });
+    setPool((p) => ({ ...p, [id]: [...(p[id] || []), ...rows] }));
+    setOpportunities((list) => list.map((o) => (o.id === id ? { ...o, funnel: { ...(o.funnel || {}), screening: (o.funnel?.screening || 0) + made.length } } : o)));
+    addAudit('Candidate', `Assessment sent · ${n} screened · ${made.length} links issued`, opp.title, { clientId: cid, actor: `${currentClient?.name || 'Client'} · Recruiter`, role: 'client' });
+    return { invites: made, rows, passed: made.length, rejected: rows.length - made.length };
   };
   const addCustomModule = (def) => { const key = 'custom_' + rnd(); setCustomModules((list) => [...list, { key, time: 'custom', custom: true, ...def }]); return key; };
   const saveTemplate = (name, modulesArr, weights) => { const id = 'tpl_' + rnd(); setAssessmentTemplates((l) => [{ id, name, createdAt: 'just now', modules: (modulesArr || []).map((m) => ({ ...m })), weights: (weights || []).map((w) => ({ ...w })) }, ...l]); return id; };
@@ -1197,6 +1323,7 @@ export function AppProvider({ children }) {
       /* client-side product */
       opportunities, clientOpportunities, addOpportunity, getOpportunity, getCandidates, getPool, rescue, recordCandidateResult, addToPool, updateAssessment, setOppStatus, sendAssessment, customModules, addCustomModule,
       assessmentTemplates, saveTemplate, deleteTemplate,
+      invites, invitesFor, getInvite, createInvite, openInvite, saveAttempt, submitInvite, declineInvite, abandonInvite, renewInvite, applyToOpportunity,
       currentClientId, currentClient, clientWallet, clientLedger, clientPayments, clientTickets, clientOverrides, clientFailedJobs, clientTeam, inviteTeammate,
       buyCredits, raiseTicket, setClientLowBalanceThreshold, clientEstimate, clientCanStart, availableCatalogFor, moduleAvailableFor, provenanceFor, overrideDecision,
       impersonating, setImpersonating,

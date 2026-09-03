@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { Send, AlertTriangle, Wallet } from 'lucide-react';
-import { useApp, fmtCr } from '../store.jsx';
+import { Send, AlertTriangle, Wallet, ExternalLink } from 'lucide-react';
+import { useApp, fmtCr, fmtDate } from '../store.jsx';
 import { useToast, PendingChip } from '../components/admin/ui.jsx';
 import OppTabs from '../components/OppTabs.jsx';
 
@@ -28,8 +28,8 @@ export default function CandidatePool() {
   const rescued = pool.filter((c) => c.rescued);
 
   const doRescue = (c) => {
-    rescue(id, c.id);
-    show(`${c.name} rescued — assessment link sent. No credits charged yet; ~${fmtCr(perCandidate)} is reserved when they start.`);
+    const inv = rescue(id, c.id);
+    show(`${c.name} rescued — assessment link sent${inv?.email ? ' to ' + inv.email : ''}. No credits charged yet; ~${fmtCr(perCandidate)} is reserved when they start.`);
   };
 
   return (
@@ -67,7 +67,7 @@ export default function CandidatePool() {
                 const [bg, fg] = PALETTE[i % PALETTE.length];
                 return (
                   <tr key={c.id}>
-                    <td><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div className="avatar" style={{ width: 32, height: 32, background: bg, color: fg, fontSize: 11 }}>{ini(c.name)}</div><span style={{ fontWeight: 600 }}>{c.name}</span></div></td>
+                    <td><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div className="avatar" style={{ width: 32, height: 32, background: bg, color: fg, fontSize: 11 }}>{ini(c.name)}</div><div><div style={{ fontWeight: 600 }}>{c.name}</div>{c.email && <div style={{ fontSize: 11.5, color: '#9CA3AF' }}>{c.email}{c.appliedAt ? ` · ${c.appliedAt}` : ''}</div>}</div></div></td>
                     <td style={{ fontWeight: 700, color: c.fit >= 60 ? '#059669' : '#D97706' }}>{c.fit}</td>
                     <td>{c.pass
                       ? <span className="badge" style={{ background: '#DCFCE7', color: '#15803D' }}>{c.rescued ? 'Rescued → assessment' : 'Passed → assessment'}</span>
@@ -89,8 +89,8 @@ export default function CandidatePool() {
                           <span style={{ fontSize: 12, color: '#056FD4', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }} onClick={() => nav('/billing')}>Top up →</span>
                         </div>
                       )) : c.rescued
-                        ? <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>Link sent · charged when they start</span>
-                        : <span style={{ color: '#E2E8F0' }}>—</span>}
+                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 11.5, color: '#9CA3AF' }}>Link sent · charged when they start</span>{c.inviteToken && <button className="btn-ghost" style={{ padding: '4px 9px', fontSize: 11.5 }} onClick={() => nav('/a/' + c.inviteToken)}><ExternalLink size={12} /> Open</button>}</span>
+                        : c.inviteToken ? <button className="btn-ghost" style={{ padding: '4px 9px', fontSize: 11.5 }} onClick={() => nav('/a/' + c.inviteToken)}><ExternalLink size={12} /> Open link</button> : <span style={{ color: '#E2E8F0' }}>—</span>}
                     </td>
                   </tr>
                 );

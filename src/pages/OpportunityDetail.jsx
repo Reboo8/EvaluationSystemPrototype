@@ -14,6 +14,8 @@ const MODNAME = { resume: 'Resume / JD Screen', written: 'Written', mcq: 'MCQ', 
 const JOB_CASE = { RESUME_PARSE_FAILED: 'resume_stuck', STUCK_ASSESSMENT: 'assessment_crash', STUCK_INTERVIEW: 'interview_failed', AI_PROVIDER_FAILURE: 'interview_failed', PENDING_SCORE: 'result_missing', NOTIFICATION_FAILURE: 'invite_expired' };
 const num = (n) => (Number(n) || 0).toLocaleString('en-IN');
 
+const niceDate = (d) => { try { const x = new Date(d); return isNaN(x) ? d : x.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return d; } };
+
 export default function OpportunityDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -114,16 +116,16 @@ export default function OpportunityDetail() {
       )}
 
       {/* header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 22 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div style={{ minWidth: 280, flex: '1 1 320px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0 }}>{opp.title}</h1>
             <span className="badge" style={{ background: sbg, color: sfg }}>{opp.status === 'OPEN' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: sfg }} />} {opp.status}</span>
           </div>
-          <div style={{ display: 'flex', gap: 18, fontSize: 13, color: '#6B7280', marginTop: 8 }}>
-            {opp.openedDate && <span><Calendar size={14} style={{ verticalAlign: -2 }} /> Opened {opp.openedDate}</span>}
-            {opp.location && <span><MapPin size={14} style={{ verticalAlign: -2 }} /> {opp.location}</span>}
-            {opp.closingDate && <span><Clock size={14} style={{ verticalAlign: -2 }} /> Closes {opp.closingDate}</span>}
+          <div style={{ display: 'flex', gap: 18, rowGap: 6, flexWrap: 'wrap', fontSize: 13, color: '#6B7280', marginTop: 8 }}>
+            {opp.openedDate && <span style={{ whiteSpace: 'nowrap' }}><Calendar size={14} style={{ verticalAlign: -2 }} /> Opened {niceDate(opp.openedDate)}</span>}
+            {opp.location && <span style={{ whiteSpace: 'nowrap' }}><MapPin size={14} style={{ verticalAlign: -2 }} /> {opp.location}</span>}
+            {opp.closingDate && <span style={{ whiteSpace: 'nowrap' }}><Clock size={14} style={{ verticalAlign: -2 }} /> Closes {niceDate(opp.closingDate)}</span>}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -131,6 +133,7 @@ export default function OpportunityDetail() {
           {opp.status === 'OPEN' && <button className="btn-ghost" {...gated('Pause this opportunity')} onClick={() => changeStatus('PAUSED', 'Opportunity paused')}><Pause size={15} /> Pause</button>}
           {(opp.status === 'PAUSED' || opp.status === 'CLOSED') && <button className="btn-success" {...gated('Reopen this opportunity')} onClick={() => changeStatus('OPEN', 'Opportunity reopened')}><Play size={15} /> {opp.status === 'CLOSED' ? 'Reopen' : 'Resume'}</button>}
           <button className="btn-ghost" onClick={() => nav('/opportunities/' + id + '/assessment')}><Settings2 size={15} /> Configure Assessment</button>
+          <button className="btn-ghost" onClick={() => nav('/careers/' + id + '?preview=1')}><Eye size={15} /> Careers page</button>
           <button className="btn-ghost" onClick={() => nav('/candidate/' + id)}><Eye size={15} /> Preview candidate flow</button>
           <button className="btn-primary" {...gated('Send the assessment link')} onClick={() => nav('/opportunities/' + id + '/send')}><Send size={15} /> Send Assessment</button>
         </div>

@@ -167,7 +167,8 @@ export default function AssessmentBuilder() {
           {catalog.filter((c) => availOf(c.key).state !== 'DISABLED').map((c) => {
             const av = availOf(c.key);
             const isPaused = (av.note || '').toLowerCase().includes('paused');
-            const canAdd = av.ok || isPaused;
+            const already = ['resume', 'interview', 'typing', 'personality'].includes(c.key) && modules.some((m) => m.key === c.key);
+            const canAdd = (av.ok || isPaused) && !already;
             const greyed = !canAdd;
             return (
             <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', border: '1px solid #E2E8F0', borderRadius: 10, marginBottom: 8, opacity: greyed ? 0.5 : 1 }}>
@@ -182,7 +183,7 @@ export default function AssessmentBuilder() {
                 <div style={{ fontSize: 11, color: '#9CA3AF' }}>{c.time}{rateOf(c.key) > 0 ? <> · <b style={{ color: '#056FD4' }}>{rateOf(c.key)} cr</b> {unitOf(c.key)}</> : <> · <span style={{ color: '#15803D' }}>free</span></>}</div>
                 {greyed && av.note && <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 2 }}>{av.note}</div>}
               </div>
-              <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} disabled={!canAdd} title={!canAdd ? av.note : undefined} onClick={() => canAdd && addModule(c.key, c.custom ? { rubric: c.rubric || [] } : {})}>+ Add</button>
+              <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} disabled={!canAdd} title={!canAdd ? (already ? 'Already in this assessment — one per assessment' : av.note) : undefined} onClick={() => canAdd && addModule(c.key, c.custom ? { rubric: c.rubric || [] } : {})}>+ Add</button>
             </div>
             );
           })}

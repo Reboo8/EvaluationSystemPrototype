@@ -1,524 +1,280 @@
+import { Component } from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  Check, Mic, Bot, Wifi, Camera, ScanFace, Wand2, Keyboard, Code2, FileText, ListChecks,
-  Languages, MessagesSquare, GitBranch, Play, Loader2, X, AlertTriangle, ShieldCheck,
-} from 'lucide-react';
-import { useApp, fmtCr } from '../store.jsx';
+import { Check, Loader2, CalendarClock, Link2, Mail, Save, ArrowRight, Eye } from 'lucide-react';
+import { CandidateShell, Notice as ShellNotice, JOURNEY } from '../candidate/shell.jsx';
+import { useApp, initials, fmtDate, isInviteExpired, hashNum } from '../store.jsx';
+import { MediaProvider, useMedia } from '../candidate/media.jsx';
+import { InstructionsPage, SystemCheckPage, IdentityPage } from '../candidate/PreAssessment.jsx';
+import { AssessmentRunner } from '../candidate/AssessmentRunner.jsx';
+import { InterviewPage } from '../candidate/InterviewPage.jsx';
+import { ResultsPage } from '../candidate/ResultsPage.jsx';
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   Candidate run-time. Entry is ALWAYS an assessment link (/a/:token) issued after the resume gate:
+   careers-page apply · email invite · sourced resume · pool rescue · retake · recruiter preview.
+   The link is time-bound and resumable; progress is saved on every step.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
 
 const MODNAME = { resume: 'Resume / JD Screen', written: 'Written', mcq: 'MCQ / Objective', coding: 'Coding', sjt: 'Situational Judgement', language: 'Language / CEFR', personality: 'Personality', typing: 'Typing', computer: 'Computer Literacy', interview: 'AI Interview', simulation: 'Simulation', custom: 'Custom' };
-const MODICON = { written: FileText, mcq: ListChecks, coding: Code2, sjt: GitBranch, language: Languages, typing: Keyboard, simulation: MessagesSquare, personality: FileText, computer: Keyboard };
+/* rank-weight label per module key (must agree with AssessmentBuilder WEIGHT_LABEL) */
 const KEY_LABEL = { coding: 'Coding', mcq: 'MCQ', written: 'Written', sjt: 'SJT', language: 'Language', typing: 'Typing', simulation: 'Simulation', interview: 'AI Interview', personality: 'Personality', computer: 'Computer Literacy' };
-const DEFAULT_RP = [{ label: 'Skills match', weight: 50 }, { label: 'Work experience', weight: 50 }];
-/* the run needs a name to trace Client -> Opportunity -> Candidate -> Module in the ledger */
-const RUN_NAMES = ['Aditya Rane', 'Nikhil Bose', 'Sara Qureshi', 'Ishita Kulkarni', 'Vivek Anand', 'Tanya Bhatt', 'Imran Sheikh', 'Ritu Chandra'];
+const DEFAULT_BANDS = [{ from: 0, to: 59, label: 'Reject' }, { from: 60, to: 69, label: 'Review' }, { from: 70, to: 100, label: 'Advance' }];
+const bandOf = (m, score) => { const bands = m.bands && m.bands.length ? m.bands : DEFAULT_BANDS; const b = bands.find((x) => score >= Number(x.from) && score <= Number(x.to)); return b ? b.label : (score >= 60 ? 'Advance' : 'Reject'); };
+const firstName = (n = '') => (String(n).replace(/^Dr\.?\s*/i, '').trim().split(' ')[0] || 'there');
 
-const hashNum = (str) => { let h = 0; for (let i = 0; i < String(str).length; i++) h = (h * 31 + String(str).charCodeAt(i)) >>> 0; return h; };
-const pseudo = (seed, lo = 74, hi = 93) => lo + (hashNum(seed) % (hi - lo + 1));
-
-export default function CandidateFlow() {
+/* ── the recruiter's "Preview candidate flow": issue a throw-away preview link and land on it, like a candidate would ── */
+export function PreviewCandidate() {
   const { id } = useParams();
   const nav = useNavigate();
-  const {
-    getOpportunity, currentClientId, rateCard, rateOf,
-    reserveCredits, settleReserve, releaseReserve, consumeCredits, recordUsage, reportFailedJob, recordCandidateResult, addToPool,
-  } = useApp();
-  const opp = getOpportunity(id);
-  /* Queued charges run one or more commits after they were queued, so they must not call the
-     store functions captured at queue time — those close over a stale wallet and would stamp a
-     stale `balanceAfter`/overdraft decision on the entry. This ref always holds the newest ones. */
-  const api = useRef(null);
-  api.current = { rateOf, reserveCredits, settleReserve, releaseReserve, consumeCredits, recordUsage, reportFailedJob, recordCandidateResult, addToPool };
-  const [step, setStep] = useState(0);
-  const [scores, setScores] = useState({});
-  const [outcome, setOutcome] = useState(null); // null | 'rejected'
-  const [charges, setCharges] = useState([]);   // operator-only trace of what this run cost
-  const [tick, setTick] = useState(0);          // drains the charge queue — one ledger entry per commit
+  const { getOpportunity, createInvite, currentClient } = useApp();
+  const made = useRef(false);
+  useEffect(() => {
+    if (made.current) return; made.current = true;
+    const opp = getOpportunity(id);
+    if (!opp) { nav('/opportunities', { replace: true }); return; }
+    const inv = createInvite(id, { name: currentClient?.owner?.name || 'Preview candidate', email: currentClient?.owner?.email || 'preview@example.com', source: 'preview', validDays: 1 });
+    nav('/a/' + inv.token, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <div style={{ padding: 60, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}><Loader2 size={18} className="spin" style={{ verticalAlign: -4 }} /> Opening preview…</div>;
+}
 
-  /* ── invisible bookkeeping. The candidate never sees credits, wallet or money. ──
-     Charges are queued by user-driven stage transitions and drained one per commit, so
-     StrictMode double-invocation and ordinary re-renders can never post a second entry. */
-  const queue = useRef([]);         // pending charge thunks
-  const fired = useRef(new Set());  // every charge has an id and fires exactly once
-  const held = useRef(null);        // the live RESERVE: { id, hold, key, stage }
-  const started = useRef(false);
-  const ended = useRef(false);
-  const quit = useRef(false);
-  const person = useRef(null);
-  if (!person.current) person.current = RUN_NAMES[Math.floor(Math.random() * RUN_NAMES.length)];
-  const [candName, setCandName] = useState(() => person.current);
-  const setName = (v) => { setCandName(v); person.current = (v || '').trim() || person.current; };
+/* ── /a/:token — resolve the link first: invalid · used · declined · expired · replaced · live ── */
+export default function CandidateFlow() {
+  const { token } = useParams();
+  const nav = useNavigate();
+  const { getInvite, getOpportunity, getClient, renewInvite, settings } = useApp();
+  const [renewed, setRenewed] = useState(null);
+  /* once a live run has started on this mount it keeps the screen — submitting or withdrawing must show the
+     run's own closure, not the "already completed" notice meant for someone re-opening the link later */
+  const entered = useRef(null);
+  const inv = getInvite(token);
+  const opp = inv ? getOpportunity(inv.oppId) : null;
+  const employer = opp ? getClient(opp.clientId || 'cl1') : null;
+  const support = settings?.general?.supportEmail || 'support@cuba.reboo8.com';
+  const who = employer?.name || 'the employer';
+  const terminal = !inv || !opp || ['SUBMITTED', 'DECLINED', 'ABANDONED', 'RENEWED', 'EXPIRED'].includes(inv.status) || isInviteExpired(inv);
+  if (!terminal && entered.current !== token) entered.current = token;
+  if (entered.current === token && inv && opp) return <Run key={token} inv={inv} opp={opp} employer={employer} />;
 
-  const allModules = opp?.assessment?.modules || [];
-  const resumeModule = allModules.find((m) => m.key === 'resume');
-  const testModules = allModules.filter((m) => m.key !== 'resume');
-  const stages = [
-    { kind: 'apply' }, { kind: 'checks' },
-    ...(resumeModule ? [{ kind: 'resume', m: resumeModule }] : []),
-    ...testModules.map((m) => ({ kind: m.key === 'interview' ? 'interview' : 'module', m })),
-    { kind: 'result' },
-  ];
-  const idx = Math.min(step, stages.length - 1);
-  const cur = stages[idx];
+  if (!inv || !opp) return (
+    <Frame employer={employer} opp={opp}>
+      <Notice icon={Link2} tone="muted" title="This link isn't valid" body="Check the link in your email, or ask the recruiter who invited you for a new one." foot={`Need help? ${support}`} />
+    </Frame>
+  );
+  if (inv.status === 'SUBMITTED') return (
+    <Frame employer={employer} opp={opp} stage="results" progress={1}>
+      <Notice icon={Check} tone="ok" title="You've already completed this assessment" body={`Submitted on ${fmtDate(inv.submittedAt)}. ${who} will review your results and get back to you at ${inv.email}.`} foot="You can close this window." />
+    </Frame>
+  );
+  if (inv.status === 'DECLINED' || inv.status === 'ABANDONED') return (
+    <Frame employer={employer} opp={opp}>
+      <Notice icon={Check} tone="muted" title={inv.status === 'DECLINED' ? 'You chose not to take this assessment' : 'This attempt was closed'} body={`We've let ${who} know. If you've changed your mind, contact them for a new invitation.`} foot={`Need help? ${support}`} />
+    </Frame>
+  );
+  if (renewed) return (
+    <Frame employer={employer} opp={opp}>
+      <Notice icon={Mail} tone="ok" title="A new link is on its way" body={`We've sent a fresh assessment link to ${inv.email}. It's valid until ${fmtDate(renewed.expiresAt)}.`}>
+        <Cta onClick={() => { setRenewed(null); nav('/a/' + renewed.token, { replace: true }); }}>Open the new link</Cta>
+      </Notice>
+    </Frame>
+  );
+  if (inv.status === 'RENEWED') return (
+    <Frame employer={employer} opp={opp}>
+      <Notice icon={Mail} tone="muted" title="This link was replaced by a newer one" body={`We sent a fresh link to ${inv.email}. Please use the latest email.`}>
+        {inv.renewedTo && <Cta onClick={() => nav('/a/' + inv.renewedTo, { replace: true })}>Open the latest link</Cta>}
+      </Notice>
+    </Frame>
+  );
+  if (isInviteExpired(inv) || inv.status === 'EXPIRED') return (
+    <Frame employer={employer} opp={opp}>
+      <Notice icon={CalendarClock} tone="warn" title="This link has expired" body={`Your link for ${opp.title} was valid until ${fmtDate(inv.expiresAt)}. An expired link isn't a rejection — request a new one and pick up where you left off.`}>
+        <Cta onClick={() => setRenewed(renewInvite(token))}>Request a new link</Cta>
+      </Notice>
+    </Frame>
+  );
+  return <Run key={inv.token} inv={inv} opp={opp} employer={employer} />;
+}
 
-  /* rate-card lookups → the ledger row reads Module · Usage · Rate · Credits */
-  const svc = (key) => rateCard.find((r) => r.key === key) || {};
+/* ── the live run: instructions → system check → identity → proctored modules → AI interview → results ── */
+function Run(props) { return <Guard><MediaProvider><RunInner {...props} /></MediaProvider></Guard>; }
+
+/* Last line of defence: progress is persisted after every step, so a reload always resumes. */
+class Guard extends Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { console.error('[candidate] render failed', err, info?.componentStack); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    const msg = String(this.state.err?.message || this.state.err).slice(0, 160);
+    return (
+      <div className="cand" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#F6F8FB', padding: 24 }}>
+        <div className="cj-card cj-enter" style={{ maxWidth: 460, padding: '32px 32px 28px', textAlign: 'center' }}>
+          <div className="cj-eyebrow">Something went wrong</div>
+          <h1 style={{ fontSize: 24, fontWeight: 600, color: '#14212A', letterSpacing: '-0.02em', margin: '10px 0 8px' }}>This page hit a snag.</h1>
+          <p style={{ color: '#475569', fontSize: 14.5, lineHeight: 1.6, margin: '0 0 20px' }}>Your progress is saved. Reload to pick up where you left off. If it happens again, open the same link later or contact the employer.</p>
+          <button className="cj-btn cj-btn--primary" onClick={() => window.location.reload()}>Reload</button>
+          <div style={{ marginTop: 16, fontSize: 11.5, color: '#9CA3AF', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{msg}</div>
+        </div>
+      </div>
+    );
+  }
+}
+
+function RunInner({ inv, opp, employer }) {
+  const nav = useNavigate();
+  const app = useApp();
+  const media = useMedia();
+  const api = useRef(null); api.current = app;
+  const token = inv.token;
+  const preview = inv.source === 'preview';
+  const noBill = preview || inv.source === 'retake';
+  const clientId = opp.clientId || app.currentClientId;
+  const allModules = (opp.assessment?.modules || []).filter((m) => m.key !== 'resume');
+  const testModules = allModules.filter((m) => m.key !== 'interview');
+  const interviewModule = allModules.find((m) => m.key === 'interview') || null;
+  const saved = inv.attempt || null;
+  const STAGES = ['instructions', 'syscheck', 'identity', ...(testModules.length ? ['assessment'] : []), ...(interviewModule ? ['interview'] : []), 'results'];
+  const journey = JOURNEY.filter((j) => (j.key !== 'assessment' || testModules.length) && (j.key !== 'interview' || interviewModule));
+  const [stage, setStage] = useState(() => (STAGES.includes(saved?.stage) ? saved.stage : 'instructions'));
+  const [resumePrompt, setResumePrompt] = useState(() => !!saved && saved.stage && saved.stage !== 'instructions');
+  const [modal, setModal] = useState(null);
+  const [ended, setEnded] = useState(null);
+  const [tick, setTick] = useState(0);
+  const data = useRef({ syscheck: saved?.syscheck || null, identity: saved?.identity || null, runner: saved?.runner || null, interview: saved?.interview || null, results: saved?.results || [], violations: saved?.violations || [] });
+  const [interviewResult, setInterviewResult] = useState(() => saved?.interviewResult || null);
+  const [moduleResults, setModuleResults] = useState(() => saved?.results || []);
+  const queue = useRef([]);
+  const fired = useRef(new Set(saved?.fired || []));
+  const held = useRef(saved?.held || null);
+  const decided = useRef(false);
+
+  const svc = (key) => (app.rateCard || []).find((r) => r.key === key) || {};
   const svcName = (key) => svc(key).name || MODNAME[key] || key;
-  const svcRate = (key) => `${rateOf(key)} cr / ${(svc(key).unit || 'per unit').replace('per ', '')}`;
-  const trace = (key, usage) => ({ oppId: opp?.id, oppTitle: opp?.title, candidate: person.current, module: svcName(key), usage, rate: svcRate(key) });
-  const bill = (label, credits, released = 0) => setCharges((l) => [...l, { label, credits, released }]);
-
+  const svcRate = (key) => `${app.rateOf(key)} cr / ${(svc(key).unit || 'per unit').replace('per ', '')}`;
+  const trace = (key, usage) => ({ oppId: opp.id, oppTitle: opp.title, candidate: inv.name || inv.email, module: svcName(key), usage, rate: svcRate(key) });
+  const persist = (extra = {}) => { if (preview) return; api.current.saveAttempt(token, { stage, held: held.current, fired: Array.from(fired.current), syscheck: data.current.syscheck, identity: data.current.identity, runner: data.current.runner, interview: data.current.interview, results: moduleResults, interviewResult, violations: data.current.violations, ...extra }); };
   const push = (key, job) => { if (fired.current.has(key)) return; fired.current.add(key); queue.current.push(job); setTick((t) => t + 1); };
   const flush = () => { const q = queue.current; queue.current = []; q.forEach((j) => j()); };
+  useEffect(() => { if (!queue.current.length) return; queue.current.shift()(); persist(); if (queue.current.length) setTick((t) => t + 1); }, [tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api.current.openInvite(token); }, [token]);
+  useEffect(() => { if (stage !== 'instructions') persist({ stage }); }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!queue.current.length) return;
-    queue.current.shift()();
-    if (queue.current.length) setTick((t) => t + 1);
-  }, [tick]);
+  /* ── billing (invisible to the candidate): proctoring once per run, a hold per paid module, settled on completion ── */
+  const proctorOnce = () => { if (noBill) return; push('proctor', () => { const r = api.current.rateOf('proctoring'); if (r > 0) api.current.consumeCredits(clientId, r, trace('proctoring', '1 session')); api.current.recordUsage(clientId, { proctoringSessions: 1 }); }); };
+  const holdFor = (m, idx) => { if (noBill) return; proctorOnce(); push('hold:' + m.key + idx, () => { const r = api.current.rateOf(m.key); if (m.key !== 'interview') api.current.recordUsage(clientId, { assessmentAttempts: 1 }); held.current = r > 0 ? { id: api.current.reserveCredits(clientId, { ...trace(m.key, 'hold before start'), hold: r }), hold: r, key: m.key, stage: m.key + idx } : null; }); };
+  const settleFor = (m, idx, meta = {}) => { if (noBill) return; const isInt = m.key === 'interview'; push('settle:' + m.key + idx, () => { if (isInt) api.current.recordUsage(clientId, { interviews: 1, interviewMinutes: Number(meta.minutes) || 0 }); else api.current.recordUsage(clientId, { assessmentCompletions: 1 }); const h = held.current; if (!h || h.stage !== m.key + idx) return; const actual = isInt ? Math.max(1, Math.round((h.hold * (Number(meta.asked) || 1)) / (Number(meta.total) || 1))) : h.hold; api.current.settleReserve(clientId, h.id, actual, { ...trace(m.key, isInt ? `1 interview · ${meta.minutes || 0} min` : '1 attempt'), hold: h.hold }); held.current = null; }); };
 
-  /* one pass per stage: the run starts, a paid module reserves, proctoring is charged once */
-  useEffect(() => {
-    if (!opp || outcome || quit.current || idx < 2) return;
-    started.current = true;
-    push('run', () => api.current.recordUsage(currentClientId, { candidates: 1 }));
-    if (resumeModule) push('resume', () => {
-      const r = api.current.rateOf('resume');
-      if (r > 0) { api.current.consumeCredits(currentClientId, r, trace('resume', '1 candidate')); bill(svcName('resume'), r); }
-      api.current.recordUsage(currentClientId, { resumeAnalyses: 1 });
-    });
-    const st = stages[idx];
-    if (st.kind === 'module' || st.kind === 'interview') {
-      push('proctor', () => {
-        const r = api.current.rateOf('proctoring');
-        if (r > 0) { api.current.consumeCredits(currentClientId, r, trace('proctoring', '1 session')); bill(svcName('proctoring'), r); }
-        api.current.recordUsage(currentClientId, { proctoringSessions: 1 });
-      });
-      push('hold:' + idx, () => {
-        const k = st.m.key, r = api.current.rateOf(k);
-        if (st.kind !== 'interview') api.current.recordUsage(currentClientId, { assessmentAttempts: 1 });
-        held.current = r > 0 ? { id: api.current.reserveCredits(currentClientId, { ...trace(k, 'hold before start'), hold: r }), hold: r, key: k, stage: idx } : null;
-      });
-    }
-    if (st.kind === 'result') { ended.current = true; push('done', () => api.current.recordUsage(currentClientId, { evaluations: 1 })); }
-  }, [idx, outcome]);
-
-  /* module finished → SETTLEMENT consumes the actual amount and releases the rest of the hold */
-  const settle = (i, st, meta = {}) => {
-    if (!st || (st.kind !== 'module' && st.kind !== 'interview')) return;
-    const k = st.m.key, isInt = st.kind === 'interview', mins = Number(meta.minutes) || 0;
-    push('settle:' + i, () => {
-      if (isInt) api.current.recordUsage(currentClientId, { interviews: 1, interviewMinutes: mins });
-      else api.current.recordUsage(currentClientId, { assessmentCompletions: 1 });
-      const h = held.current;
-      if (!h || h.stage !== i) return;
-      const actual = isInt ? Math.max(1, Math.round((h.hold * (Number(meta.asked) || 1)) / (Number(meta.total) || 1))) : h.hold;
-      api.current.settleReserve(currentClientId, h.id, actual, { ...trace(k, isInt ? `1 interview · ${mins} min` : '1 attempt'), hold: h.hold });
-      bill(svcName(k), actual, Math.max(0, h.hold - actual));
-      held.current = null;
+  /* ── decision: per-module bands gate, client weights rank, then record ── */
+  const decide = (results, iv) => {
+    if (decided.current) return; decided.current = true;
+    const scores = {};
+    results.forEach((r) => { scores[KEY_LABEL[r.key] || r.label] = r.score; });
+    if (iv) scores['AI Interview'] = iv.score;
+    if (inv.fit?.fit != null) scores['Resume-fit'] = inv.fit.fit;
+    const flags = data.current.violations.filter((v) => v.violationType).length;
+    scores.Integrity = Math.max(40, 100 - flags * 5);
+    /* client-named weight labels (e.g. "Medical Knowledge") map to modules in order when no module emits that label */
+    const weights = opp.assessment?.weights || [];
+    const unmatched = weights.filter((w) => scores[w.label] == null);
+    const spare = [...results.filter((r) => !weights.some((w) => w.label === (KEY_LABEL[r.key] || r.label)))];
+    unmatched.forEach((w) => { const r = spare.shift(); if (r) scores[w.label] = r.score; });
+    const present = weights.filter((w) => scores[w.label] != null);
+    const totalW = present.reduce((a, w) => a + (Number(w.w) || 0), 0) || 1;
+    const weighted = Math.round(present.reduce((a, w) => a + (Number(w.w) || 0) * scores[w.label], 0) / totalW);
+    const gates = results.map((r) => ({ module: r.label, key: r.key, score: r.score, band: bandOf(testModules[r.mi] || {}, r.score) }));
+    if (iv && interviewModule) gates.push({ module: 'AI Interview', key: 'interview', score: iv.score, band: bandOf(interviewModule, iv.score) });
+    const typing = results.find((r) => r.typing)?.typing;
+    if (typing) { const tm = testModules.find((m) => m.key === 'typing'); gates.push({ module: 'Typing gate', key: 'typing-gate', score: typing.wpm, band: typing.wpm >= (tm?.tWpm || 40) && typing.acc >= (tm?.tAcc || 90) ? 'Advance' : 'Reject', detail: `${typing.wpm} WPM · ${typing.acc}%` }); }
+    const passMark = opp.criteria?.minAssessmentScore || 60;
+    const anyReject = gates.some((g) => /reject|fail/i.test(g.band)); const anyReview = gates.some((g) => /review/i.test(g.band));
+    const status = anyReject ? 'NOT_CLEARED' : anyReview ? 'REVIEW' : weighted >= passMark ? 'CLEARED' : 'NOT_CLEARED';
+    const cefr = iv?.cefr || (scores.Language != null ? (scores.Language >= 80 ? 'C1' : scores.Language >= 60 ? 'B2' : 'B1') : 'B2');
+    const outcome = { status, cleared: status === 'CLEARED', weighted, scores, gates, passMark, cefr, wpm: typing?.wpm || 0, flags };
+    push('record', () => {
+      if (preview) return;
+      api.current.submitInvite(token, outcome);
+      api.current.recordUsage(clientId, { evaluations: 1 });
+      if (status !== 'NOT_CLEARED') api.current.recordCandidateResult(opp.id, { name: inv.name || inv.email, email: inv.email, inviteToken: token, source: inv.source, scores, cefr, wpm: typing?.wpm || 0, exp: `${1 + (hashNum(inv.email || inv.name) % 5)} yrs`, minutes: iv?.minutes || 0, status, gates });
     });
   };
 
-  const next = () => setStep((s) => Math.min(s + 1, stages.length - 1));
-  const advance = (label, score, meta) => {
-    settle(idx, cur, meta);
-    if (label != null && score != null) setScores((s) => ({ ...s, [label]: score }));
-    next();
-  };
+  const saveExit = () => { flush(); persist(); setModal(null); setEnded('saved'); };
+  const withdraw = () => { flush(); const h = held.current; if (h && !noBill) { api.current.releaseReserve(clientId, h.id, { ...trace(h.key, 'hold released — candidate withdrew'), hold: h.hold }); held.current = null; } if (!preview) { if (stage === 'instructions') api.current.declineInvite(token); else api.current.abandonInvite(token); } media.stopAll(); setModal(null); setEnded('withdrawn'); };
+  const exitPreview = () => { media.stopAll(); nav('/opportunities/' + opp.id); };
+  const go = (next) => setStage(next);
+  const afterIdentity = () => go(testModules.length ? 'assessment' : interviewModule ? 'interview' : 'results');
+  const banner = preview ? <PreviewBanner onExit={exitPreview} /> : null;
 
-  /* left mid-run → release the hold, count the failure, light up the admin Needs-Attention queue */
-  const leave = () => {
-    if (opp && started.current && !ended.current && !outcome && !quit.current) {
-      quit.current = true;
-      flush();
-      const h = held.current, st = stages[idx], isInt = st?.kind === 'interview';
-      const where = svcName(st?.m?.key || 'resume');
-      if (h) { api.current.releaseReserve(currentClientId, h.id, { ...trace(h.key, 'hold released'), hold: h.hold }); held.current = null; }
-      api.current.recordUsage(currentClientId, { failed: 1 });
-      api.current.reportFailedJob(currentClientId, isInt ? 'STUCK_INTERVIEW' : 'STUCK_ASSESSMENT', {
-        oppId: opp.id, oppTitle: opp.title, candidate: person.current, module: where,
-        detail: `Candidate left during ${where} — the session ended with no result. Open hold released; the unfinished module was not charged.`,
-        creditsHeld: charges.reduce((a, c) => a + (Number(c.credits) || 0), 0),
-      });
-    }
-    nav('/opportunities/' + id);
-  };
+  if (ended === 'saved') return <Frame employer={employer} opp={opp} stage={({ instructions: 'ready', syscheck: 'ready', identity: 'verify' })[stage] || stage} stages={journey}><Notice icon={Save} tone="ok" title="Your progress is saved" body={`Open the same link any time before ${fmtDate(inv.expiresAt)} and you'll continue from where you stopped.`} foot={`We've also emailed the link to ${inv.email}. You can close this window.`} /></Frame>;
+  if (ended === 'withdrawn') return <Frame employer={employer} opp={opp} stages={journey}><Notice icon={Check} tone="muted" title="Thanks for letting us know" body={`We've told ${employer?.name || 'the employer'} that you won't be taking this assessment. You can close this window.`}>{preview && <Cta onClick={exitPreview}>Exit preview</Cta>}</Notice></Frame>;
+  if (ended === 'done') return <Frame employer={employer} opp={opp} stage="results" stages={journey} progress={1}><Notice icon={Check} tone="ok" title={`All done, ${firstName(inv.name)}`} body={`Thanks for completing the assessment for ${opp.title}. ${employer?.name || 'The team'} will review your results and get back to you at ${inv.email}.`} foot="You can close this window.">{preview && <Cta onClick={exitPreview}>Back to {opp.title}</Cta>}</Notice></Frame>;
+  if (resumePrompt) return <Frame employer={employer} opp={opp} stage={({ instructions: 'ready', syscheck: 'ready', identity: 'verify' })[stage] || stage} stages={journey}><Notice icon={ArrowRight} tone="ok" title={`Welcome back, ${firstName(inv.name)}`} body={`You were on ${({ syscheck: 'the system check', identity: 'identity verification', assessment: 'the assessment', interview: 'the AI interview', results: 'your results' })[stage] || 'the assessment'}. Your earlier progress is saved — pick up right where you left off.`}><Cta onClick={() => setResumePrompt(false)}>Resume assessment</Cta></Notice></Frame>;
 
-  if (!opp) return <div style={{ padding: 40, textAlign: 'center' }}>Opportunity not found.</div>;
+  const modals = (<>
+    {modal === 'save' && <Confirm title="Save and exit?" okLabel="Save & exit" onOk={saveExit} onCancel={() => setModal(null)} body={`Everything so far is saved. Come back with the same link before ${fmtDate(inv.expiresAt)} and you'll continue from where you stopped.`} extra={<button onClick={() => setModal('withdraw')} style={LINKISH}>I want to withdraw from this assessment instead</button>} />}
+    {modal === 'withdraw' && <Confirm danger title={stage === 'instructions' ? 'Skip this assessment?' : 'Withdraw from this assessment?'} okLabel={stage === 'instructions' ? "Yes, I don't want to take it" : 'Yes, withdraw'} onOk={withdraw} onCancel={() => setModal(null)} body={`${employer?.name || 'The employer'} will be told you didn't take the assessment. You'd need a new invitation to try again.`} />}
+  </>);
 
-  const wide = cur.kind === 'interview' || (cur.kind === 'module' && cur.m.key === 'coding');
+  if (stage === 'instructions') return <><InstructionsPage inv={inv} opp={opp} employer={employer} modules={allModules} preview={preview} banner={banner} stages={journey} onStart={() => go('syscheck')} onDecline={() => setModal('withdraw')} />{modals}</>;
+  if (stage === 'syscheck') return <><SystemCheckPage employer={employer} opp={opp} stages={journey} banner={banner} onResult={(r) => { data.current.syscheck = r; }} onProceed={() => go('identity')} />{modals}</>;
+  if (stage === 'identity') return <><IdentityPage employer={employer} opp={opp} stages={journey} banner={banner} onEvidence={(e) => { data.current.identity = e; }} onContinue={afterIdentity} />{modals}</>;
+  if (stage === 'assessment') return (<>
+    <AssessmentRunner inv={inv} opp={opp} employer={employer} modules={testModules} saved={data.current.runner} banner={banner} fsRequired={!preview} stages={journey}
+      onPersist={(st) => { data.current.runner = st; persist(); }}
+      onModuleStart={(m, i) => holdFor(m, i)}
+      onModuleResult={(r) => { settleFor(testModules[r.mi], r.mi); setModuleResults((l) => { const next = [...l.filter((x) => x.mi !== r.mi), r]; data.current.results = next; return next; }); }}
+      onViolationLog={(v) => { data.current.violations = [...data.current.violations, { ...v, stage: 'assessment' }]; }}
+      onSaveExit={() => setModal('save')}
+      onComplete={(results) => { data.current.results = results; setModuleResults(results); if (interviewModule) go('interview'); else { decide(results, null); go('results'); } }} />
+    {modals}
+  </>);
+  if (stage === 'interview') return (<>
+    <InterviewStage key="iv" m={interviewModule} opp={opp} employer={employer} inv={inv} banner={banner} fsRequired={!preview} moduleResults={moduleResults} stages={journey}
+      onStarted={() => holdFor(interviewModule, 'iv')}
+      onPersist={(st) => { data.current.interview = st; }}
+      onFinish={(res) => { settleFor(interviewModule, 'iv', res); setInterviewResult(res); decide(moduleResults, res); go('results'); }} />
+    {modals}
+  </>);
+  return <ResultsPage inv={inv} opp={opp} employer={employer} stages={journey} results={moduleResults} interview={interviewResult} integrity={{ violations: data.current.violations }} identity={data.current.identity} preview={preview} onDone={() => { media.stopAll(); if (preview) exitPreview(); else setEnded('done'); }} />;
+}
 
+/* the interview charges when it actually starts (candidate clicks Start), not when the page opens */
+function InterviewStage({ onStarted, moduleResults, ...rest }) {
+  const started = useRef(false);
+  const weak = (moduleResults || []).filter((r) => r.score < 65).map((r) => r.label);
+  return <InterviewPage {...rest} weakAreas={weak} onPersist={(st) => { if (!started.current && st.questions?.length) { started.current = true; onStarted?.(); } rest.onPersist?.(st); }} />;
+}
+
+/* ═══════════════════════════ shell-based notices + dialogs (v2 design) ═══════════════════════════ */
+const LINKISH = { background: 'none', border: 'none', color: '#6B7280', fontSize: 13, fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3, cursor: 'pointer', padding: 0, fontFamily: 'inherit' };
+
+function Frame({ employer, opp, banner, stage, stages, progress, children }) {
+  return <CandidateShell employer={employer} opp={opp} stage={stage} stages={stages} progress={progress} banner={banner}>{children}</CandidateShell>;
+}
+
+const PreviewBanner = ({ onExit }) => (
+  <div style={{ background: '#14212A', color: '#fff', display: 'flex', alignItems: 'center', gap: 12, padding: '9px 28px', fontSize: 12.5, position: 'relative', zIndex: 21 }}>
+    <Eye size={15} /><span style={{ flex: 1 }}><b>Preview</b> — this is exactly what a candidate sees. Nothing is saved, charged or ranked.</span>
+    <button onClick={onExit} className="cj-btn cj-btn--sm" style={{ background: 'rgba(255,255,255,.12)', color: '#fff' }}>Exit preview</button>
+  </div>
+);
+
+const Cta = ({ children, onClick, disabled }) => <button className="cj-btn cj-btn--primary cj-btn--lg" disabled={disabled} style={{ marginTop: 22, minWidth: 260 }} onClick={onClick}>{children}</button>;
+const Notice = ShellNotice;
+
+function Confirm({ title, body, okLabel, onOk, onCancel, danger, extra }) {
   return (
-    <div style={{ minHeight: '100vh', background: '#F4F7FB' }}>
-      <div style={{ height: 60, background: '#fff', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 28px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 30, height: 30, borderRadius: 8, background: '#056FD4', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13 }}>R8</div>
-          <b>Cuba</b> <span style={{ color: '#9CA3AF', fontSize: 13 }}>· {opp.title}</span>
+    <div className="cand" onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(20,33,42,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} className="cj-card cand-slide-in" style={{ width: 440, maxWidth: '94vw', padding: '26px 28px 22px' }}>
+        <h2 style={{ fontSize: 20, fontWeight: 600, color: '#14212A', letterSpacing: '-.01em' }}>{title}</h2>
+        <p style={{ fontSize: 14.5, color: '#4B5563', lineHeight: 1.6, marginTop: 8 }}>{body}</p>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button className="cj-btn cj-btn--ghost" style={{ flex: 1 }} onClick={onCancel}>Cancel</button>
+          <button className={`cj-btn ${danger ? 'cj-btn--danger' : 'cj-btn--primary'}`} style={{ flex: 1 }} onClick={onOk}>{okLabel}</button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <span style={{ fontSize: 13, color: '#9CA3AF' }}>{outcome ? 'Screening' : `Step ${step + 1} of ${stages.length}`}</span>
-          <span style={{ fontSize: 13, color: '#9CA3AF', cursor: 'pointer' }} onClick={leave}>Quit</span>
-        </div>
-      </div>
-
-      <div style={{ maxWidth: wide ? 920 : 680, margin: '40px auto', padding: '0 20px' }}>
-        {outcome === 'rejected' ? <Rejected onExit={leave} />
-          : cur.kind === 'apply' ? <Apply opp={opp} onNext={next} name={candName} onName={setName} />
-          : cur.kind === 'checks' ? <Checks onNext={next} />
-          : cur.kind === 'resume' ? <ResumeGate opp={opp} m={cur.m} onPass={(w) => { push('pool', () => api.current.addToPool(opp.id, { name: person.current, fit: w, pass: true })); advance('Resume-fit', w); }} onReject={(w, reason) => { push('pool', () => api.current.addToPool(opp.id, { name: person.current, fit: w, pass: false, reason })); setOutcome('rejected'); }} />
-          : cur.kind === 'interview' ? <Interview m={cur.m} onNext={(sc, meta) => advance('AI Interview', sc, meta)} />
-          : cur.kind === 'module' ? <ModuleStage key={step} m={cur.m} opp={opp} onNext={(sc) => advance(KEY_LABEL[cur.m.key] || MODNAME[cur.m.key] || cur.m.key, sc)} />
-          : <Result opp={opp} scores={scores} charges={charges} onExit={leave} onRecord={(r) => { if (r.cleared) push('record', () => api.current.recordCandidateResult(opp.id, { name: person.current, scores: r.scores, cefr: (r.scores.Language ?? r.scores['AI Interview'] ?? 0) >= 80 ? 'C1' : 'B2', wpm: r.scores.Typing ? Math.round(30 + r.scores.Typing / 3) : 0, exp: `${1 + (hashNum(person.current) % 5)} yrs` })); }} />}
+        {extra && <div style={{ textAlign: 'center', marginTop: 14 }}>{extra}</div>}
       </div>
     </div>
-  );
-}
-
-const Card = ({ children, style }) => <div className="card" style={{ padding: '32px 36px', ...style }}>{children}</div>;
-const Cta = ({ children, onClick, disabled }) => <button className="btn-primary" disabled={disabled} style={{ width: '100%', justifyContent: 'center', padding: '13px 0', borderRadius: 9999, fontSize: 15, marginTop: 22 }} onClick={onClick}>{children}</button>;
-const Bar = ({ pct, color = '#056FD4' }) => <div className="progress-track"><div style={{ width: Math.min(100, pct) + '%', height: '100%', background: `linear-gradient(90deg,${color}88,${color})`, borderRadius: 10 }} /></div>;
-
-function Apply({ opp, onNext, name, onName }) {
-  const needs = [[Wifi, 'A stable internet connection'], [Mic, 'A working microphone'], [Camera, 'A webcam (laptop or phone)'], [Keyboard, 'A computer with a keyboard']];
-  return (
-    <Card>
-      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.5px', textTransform: 'uppercase', color: '#056FD4' }}>You're invited to apply</div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '8px 0 4px' }}>{opp.title}</h1>
-      <div style={{ fontSize: 13.5, color: '#6B7280', marginBottom: 22 }}>Comprehensive AI assessment · about 45 minutes</div>
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>What you'll need</div>
-      {needs.map(([Icon, t]) => <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: '1px solid #F3F4F6', fontSize: 14, color: '#374151' }}><Icon size={18} color="#056FD4" /> {t}</div>)}
-      <div style={{ marginTop: 18 }}><label className="field-label">Your full name <span className="req">*</span></label><input className="input" value={name || ''} onChange={(e) => onName && onName(e.target.value)} placeholder="As on your ID document" /><div className="hint">Used on your report and the recruiter's rank list.</div></div>
-      <Cta onClick={onNext} disabled={!(name || '').trim()}>Start assessment →</Cta>
-      <div style={{ textAlign: 'center', fontSize: 11.5, color: '#9CA3AF', marginTop: 12 }}>Your link is valid for 7 days · you can save &amp; resume</div>
-    </Card>
-  );
-}
-
-function Checks({ onNext }) {
-  const ok = (label) => <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: '1px solid #F3F4F6', fontSize: 14 }}>{label}<span style={{ color: '#16A34A', fontWeight: 600, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Check size={16} /> Ready</span></div>;
-  return (
-    <Card>
-      <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 14px' }}>System &amp; identity check</h2>
-      {ok(<span><Mic size={15} style={{ verticalAlign: -3 }} /> Microphone</span>)}
-      {ok(<span><Camera size={15} style={{ verticalAlign: -3 }} /> Camera</span>)}
-      {ok(<span><Wifi size={15} style={{ verticalAlign: -3 }} /> Internet</span>)}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '16px 0' }}>
-        <div style={{ width: 110, height: 80, borderRadius: 10, background: '#0B1220', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ScanFace size={28} color="#3B82F6" /></div>
-        <span style={{ color: '#16A34A', fontWeight: 600, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Check size={16} /> Identity verified (face + voice)</span>
-      </div>
-      <div style={{ background: '#F8FAFF', border: '1px solid #EEF2F7', borderRadius: 10, padding: '12px 14px', fontSize: 12.5, color: '#475569' }}>
-        <b style={{ color: '#14212A' }}>Honor code:</b> alone in a quiet room · no other apps/devices/AI tools · no copying. Cuba monitors camera, audio &amp; screen.
-      </div>
-      <Cta onClick={onNext}>I agree — continue →</Cta>
-    </Card>
-  );
-}
-
-/* ── resume gate: real weighted scoring vs the configured parameters + threshold ── */
-function ResumeGate({ opp, m, onPass, onReject }) {
-  const params = (m.resumeParams && m.resumeParams.length ? m.resumeParams : DEFAULT_RP);
-  const pass = m.passThreshold ?? 80;
-  const scored = params.map((p) => ({ ...p, score: pseudo(opp.id + p.label, 62, 96) }));
-  const totalW = scored.reduce((a, b) => a + (Number(b.weight) || 0), 0) || 100;
-  const weighted = Math.round(scored.reduce((a, b) => a + (Number(b.weight) || 0) * b.score, 0) / totalW);
-  const cleared = weighted >= pass;
-  const [done, setDone] = useState(false);
-
-  if (!done) return (
-    <Card>
-      <div style={{ textAlign: 'center', padding: '12px 0' }}>
-        <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}><Loader2 size={26} color="#056FD4" className="spin" /></div>
-        <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 6px' }}>Analysing your resume…</h2>
-        <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 18 }}>Matching against the job description &amp; must-have skills for {opp.title}.</div>
-        <button className="btn-primary" style={{ borderRadius: 9999, padding: '11px 28px' }} onClick={() => setDone(true)}>See result</button>
-      </div>
-    </Card>
-  );
-
-  return (
-    <Card>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}><ShieldCheck size={18} color="#056FD4" /><h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Resume screen</h2></div>
-      <div style={{ fontSize: 12.5, color: '#9CA3AF', marginBottom: 18 }}>Each parameter scored 0–100, then weighted. You clear at ≥ {pass}%.</div>
-      {scored.map((p) => (
-        <div key={p.label} style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}><span style={{ color: '#374151' }}>{p.label} <span style={{ color: '#9CA3AF' }}>· {p.weight}%</span></span><b>{p.score}</b></div>
-          <Bar pct={p.score} />
-        </div>
-      ))}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 14, borderTop: '1px solid #F3F4F6' }}>
-        <span style={{ fontSize: 14, fontWeight: 700 }}>Weighted fit score</span>
-        <span style={{ fontSize: 22, fontWeight: 800, color: cleared ? '#16A34A' : '#DC2626' }}>{weighted}%</span>
-      </div>
-      <div style={{ background: cleared ? '#F0FDF4' : '#FEF2F2', border: `1px solid ${cleared ? '#BBF7D0' : '#FCA5A5'}`, borderRadius: 10, padding: '12px 14px', marginTop: 12, fontSize: 13, color: cleared ? '#15803D' : '#991B1B' }}>
-        {cleared ? <><Check size={15} style={{ verticalAlign: -3 }} /> Cleared the resume gate ({weighted}% ≥ {pass}%) — continue to the assessment.</> : <><AlertTriangle size={15} style={{ verticalAlign: -3 }} /> Below the {pass}% threshold — added to the Candidate Pool for review.</>}
-      </div>
-      {cleared ? <Cta onClick={() => onPass(weighted)}>Continue to assessment →</Cta>
-        : <Cta onClick={() => onReject(weighted, `Below fit threshold (${pass})`)}>See what this means →</Cta>}
-    </Card>
-  );
-}
-
-/* ── dispatch a module to its proper run-time UI ── */
-function ModuleStage({ m, opp, onNext }) {
-  if (m.key === 'coding') return <CodingStage m={m} onNext={onNext} />;
-  if (m.key === 'mcq') return <MCQStage m={m} onNext={onNext} />;
-  if (m.key === 'typing') return <TypingStage m={m} onNext={onNext} />;
-  if (m.key === 'language') return <LanguageStage m={m} onNext={onNext} />;
-  return <WrittenStage m={m} opp={opp} onNext={onNext} />;
-}
-
-const StageHead = ({ m, sub }) => {
-  const Icon = MODICON[m.key] || FileText;
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><div className="icon-box" style={{ width: 36, height: 36, borderRadius: 8 }}><Icon size={18} /></div><h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>{MODNAME[m.key] || m.key}</h2></div>
-        <span className="chip" style={{ background: '#ECFDF5', color: '#16A34A' }}><Camera size={13} /> Proctoring on</span>
-      </div>
-      {sub && <div style={{ fontSize: 12.5, color: '#9CA3AF', marginTop: 6 }}>{sub}</div>}
-    </div>
-  );
-}
-
-/* ── Coding: LeetCode-style problem + editor + run/submit ── */
-function CodingStage({ m, onNext }) {
-  const q = (m.questions || []).find((x) => x.type === 'coding') || {};
-  const title = q.text || 'Two Sum';
-  const description = q.description || 'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.';
-  const examples = q.examples?.length ? q.examples : [{ input: 'nums = [2,7,11,15], target = 9', output: '[0,1]', explanation: 'nums[0] + nums[1] == 9.' }];
-  const constraints = q.constraints?.length ? q.constraints.filter(Boolean) : ['2 <= nums.length <= 10^4', '-10^9 <= nums[i] <= 10^9'];
-  const [code, setCode] = useState(q.starter || 'def solve(nums, target):\n    # your code here\n    pass');
-  const [ran, setRan] = useState(null); // null | {passed,total}
-  const [running, setRunning] = useState(false);
-  const total = 3;
-  const run = () => { setRunning(true); setRan(null); setTimeout(() => { setRunning(false); setRan({ passed: Math.min(total, Math.max(1, Math.round(code.length / 40))), total }); }, 700); };
-  const submit = () => { const passed = ran ? ran.passed : 2; onNext(Math.round((passed / total) * 100)); };
-
-  return (
-    <Card style={{ padding: 0, overflow: 'hidden' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', minHeight: 460 }}>
-        {/* problem */}
-        <div style={{ padding: '24px 26px', borderRight: '1px solid #E2E8F0', overflow: 'auto', maxHeight: '72vh' }}>
-          <StageHead m={m} />
-          <h3 style={{ fontSize: 17, fontWeight: 700, margin: '4px 0 6px' }}>{title}</h3>
-          <span className="badge" style={{ background: '#DCFCE7', color: '#15803D' }}>{(q.difficulty || 'Medium')}</span>
-          <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.7, marginTop: 12 }}>{description}</p>
-          {examples.map((ex, i) => (
-            <div key={i} style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Example {i + 1}:</div>
-              <div style={{ background: '#F8FAFC', borderLeft: '3px solid #E2E8F0', borderRadius: 6, padding: '10px 12px', fontSize: 12.5, fontFamily: 'ui-monospace, Menlo, monospace', color: '#334155', lineHeight: 1.7 }}>
-                <div><b>Input:</b> {ex.input}</div><div><b>Output:</b> {ex.output}</div>{ex.explanation && <div><b>Explanation:</b> {ex.explanation}</div>}
-              </div>
-            </div>
-          ))}
-          {constraints.length > 0 && (<>
-            <div style={{ fontSize: 13, fontWeight: 700, margin: '16px 0 6px' }}>Constraints:</div>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>{constraints.map((c, i) => <li key={i} style={{ fontSize: 12.5, color: '#475569', fontFamily: 'ui-monospace, Menlo, monospace', marginBottom: 4 }}>{c}</li>)}</ul>
-          </>)}
-        </div>
-        {/* editor */}
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #E2E8F0' }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Code2 size={14} /> {q.language || 'Python'}</span>
-            <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 12.5 }} onClick={run} disabled={running}>{running ? <Loader2 size={13} className="spin" /> : <Play size={13} />} Run</button>
-          </div>
-          <textarea value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} style={{ flex: 1, border: 'none', outline: 'none', resize: 'none', background: '#0B1220', color: '#9CDCFE', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 13, padding: '16px 18px', lineHeight: 1.6, minHeight: 240 }} />
-          <div style={{ borderTop: '1px solid #E2E8F0', padding: '12px 16px', minHeight: 70, background: '#fff' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#9CA3AF', marginBottom: 6 }}>Test result</div>
-            {running ? <span style={{ fontSize: 12.5, color: '#6B7280' }}><Loader2 size={13} className="spin" style={{ verticalAlign: -2 }} /> Running hidden tests…</span>
-              : ran ? <span style={{ fontSize: 13, fontWeight: 600, color: ran.passed === ran.total ? '#16A34A' : '#D97706' }}>{ran.passed === ran.total ? <Check size={14} style={{ verticalAlign: -2 }} /> : <AlertTriangle size={14} style={{ verticalAlign: -2 }} />} {ran.passed}/{ran.total} tests passed</span>
-                : <span style={{ fontSize: 12.5, color: '#9CA3AF' }}>Run your code to see results.</span>}
-            <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', borderRadius: 9999, marginTop: 12 }} onClick={submit}>Submit &amp; continue →</button>
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-/* ── MCQ: real questions + options, scored from answers ── */
-function MCQStage({ m, onNext }) {
-  const seeded = (m.questions || []).filter((q) => q.type === 'mcq' && (q.options || []).some(Boolean));
-  const qs = seeded.length ? seeded : [
-    { id: 'd1', text: `Which best describes a core concept of ${m.skills?.[0] || 'this domain'}?`, options: ['Option A', 'Option B (correct)', 'Option C', 'Option D'], correct: 1 },
-    { id: 'd2', text: 'Pick the most appropriate practice in this scenario.', options: ['Ignore it', 'Escalate appropriately', 'Guess', 'Do nothing'], correct: 1 },
-    { id: 'd3', text: 'Which statement is true?', options: ['False one', 'Another false', 'The true statement', 'Also false'], correct: 2 },
-  ];
-  const [ans, setAns] = useState({});
-  const allAnswered = qs.every((q) => ans[q.id] != null);
-  const submit = () => { const correct = qs.filter((q) => ans[q.id] === q.correct).length; onNext(Math.round((correct / qs.length) * 100)); };
-  return (
-    <Card>
-      <StageHead m={m} sub={`${qs.length} questions · auto-graded`} />
-      {qs.map((q, i) => (
-        <div key={q.id} style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>{i + 1}. {q.text}</div>
-          {(q.options || []).filter(Boolean).map((opt, oi) => (
-            <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: `1.5px solid ${ans[q.id] === oi ? '#056FD4' : '#E2E8F0'}`, background: ans[q.id] === oi ? '#F8FBFF' : '#fff', borderRadius: 9, marginBottom: 7, cursor: 'pointer', fontSize: 13.5 }}>
-              <input type="radio" checked={ans[q.id] === oi} onChange={() => setAns((a) => ({ ...a, [q.id]: oi }))} /> {opt}
-            </label>
-          ))}
-        </div>
-      ))}
-      <Cta onClick={submit} disabled={!allAnswered}>{allAnswered ? 'Submit & continue →' : 'Answer all to continue'}</Cta>
-    </Card>
-  );
-}
-
-/* ── Written / SJT / custom / personality ── */
-function WrittenStage({ m, opp, onNext }) {
-  const seeded = (m.questions || []).filter((q) => q.text);
-  const qs = seeded.length ? seeded : [{ id: 'w1', text: `Describe your experience with ${m.skills?.[0] || opp.title}. Include a concrete example and the outcome.` }];
-  const [vals, setVals] = useState({});
-  const answered = qs.every((q) => (vals[q.id] || '').trim().length > 10);
-  return (
-    <Card>
-      <StageHead m={m} sub={`Tests: ${m.skills?.length ? m.skills.join(', ') : 'general'} · scored on ${m.rubric?.length || 3} dimensions`} />
-      {qs.map((q, i) => (
-        <div key={q.id} style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.6, marginBottom: 8 }}>{i + 1}. {q.text}</div>
-          <textarea className="input" style={{ minHeight: 120, resize: 'vertical' }} placeholder="Type your answer…" value={vals[q.id] || ''} onChange={(e) => setVals((v) => ({ ...v, [q.id]: e.target.value }))} />
-        </div>
-      ))}
-      <Cta onClick={() => onNext(pseudo(opp.id + m.key, 72, 90))} disabled={!answered}>{answered ? 'Submit & continue →' : 'Write a fuller answer to continue'}</Cta>
-    </Card>
-  );
-}
-
-/* ── Typing: real-ish WPM/accuracy measure ── */
-function TypingStage({ m, onNext }) {
-  const passage = 'The quick brown fox jumps over the lazy dog while the team ships reliable software every single day.';
-  const [typed, setTyped] = useState('');
-  const target = m.tWpm || 40;
-  const correct = typed.split('').filter((c, i) => c === passage[i]).length;
-  const acc = typed.length ? Math.round((correct / typed.length) * 100) : 100;
-  const done = typed.length >= passage.length * 0.6;
-  return (
-    <Card>
-      <StageHead m={m} sub={`Target: ${target} WPM · ${m.tAcc || 90}% accuracy`} />
-      <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '12px 14px', fontSize: 14, color: '#475569', lineHeight: 1.7, marginBottom: 10 }}>{passage}</div>
-      <textarea className="input" style={{ minHeight: 90, resize: 'none', fontFamily: 'ui-monospace, Menlo, monospace' }} placeholder="Start typing the passage above…" value={typed} onChange={(e) => setTyped(e.target.value)} />
-      <div style={{ fontSize: 12.5, color: '#6B7280', marginTop: 8 }}>Accuracy so far: <b style={{ color: acc >= (m.tAcc || 90) ? '#16A34A' : '#D97706' }}>{acc}%</b></div>
-      <Cta onClick={() => onNext(Math.round((acc + Math.min(100, target * 2)) / 2))} disabled={!done}>{done ? 'Submit & continue →' : 'Keep typing to continue'}</Cta>
-    </Card>
-  );
-}
-
-/* ── Language: pick language + short spoken/written prompt ── */
-function LanguageStage({ m, onNext }) {
-  const langs = m.languages?.length ? m.languages : ['English'];
-  const [lang, setLang] = useState(langs[0]);
-  return (
-    <Card>
-      <StageHead m={m} sub="CEFR-scored across reading, writing, speaking, listening" />
-      {langs.length > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14 }}>
-          <span style={{ fontSize: 12, color: '#9CA3AF' }}>Language:</span>
-          {langs.map((l) => <span key={l} className="chip" onClick={() => setLang(l)} style={{ cursor: 'pointer', background: lang === l ? '#056FD4' : '#fff', color: lang === l ? '#fff' : '#6B7280', border: lang === l ? 'none' : '1px solid #E2E8F0' }}>{l}</span>)}
-        </div>
-      )}
-      <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.6, marginBottom: 8 }}>In {lang}, write a short reply to a customer who is frustrated about a delayed order.</div>
-      <textarea className="input" style={{ minHeight: 120, resize: 'vertical' }} placeholder={`Type your reply in ${lang}…`} />
-      <Cta onClick={() => onNext(pseudo(lang + m.key, 74, 92))}>Submit &amp; continue →</Cta>
-    </Card>
-  );
-}
-
-/* ── AI interview: runs the configured number of questions; ending early settles pro-rata ── */
-const IQ = [
-  (s) => `You mentioned ${s} — walk me through a hard problem you solved and the trade-offs you weighed.`,
-  (s) => `Tell me about a time ${s} did not go to plan. What did you change the next time?`,
-  (s) => `How would you explain ${s} to someone joining the team next week?`,
-  (s) => `Give me a concrete example where ${s} made a measurable difference to the outcome.`,
-];
-
-function Interview({ m, onNext }) {
-  const langs = m.languages?.length ? m.languages : ['English'];
-  const [lang, setLang] = useState(langs[0]);
-  const total = Math.max(1, Number(m.nQ) || 8);
-  const [asked, setAsked] = useState(1);
-  const skills = m.skills?.length ? m.skills : ['your experience'];
-  const question = IQ[(asked - 1) % IQ.length](skills[(asked - 1) % skills.length]);
-  const finish = (n) => onNext(pseudo(lang + (m.skills?.[0] || 'int'), 76, 92), { asked: n, total, minutes: Math.max(1, Math.round(n * 1.8)) });
-  const last = asked >= total;
-  return (
-    <Card>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ width: 140, height: 140, borderRadius: '50%', background: 'linear-gradient(135deg,#056FD4,#0B3C82)', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><Bot size={54} /></div>
-        <div style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 10 }}>Alex · AI Interviewer <span style={{ color: '#CBD5E1' }}>·</span> question {asked} of {total}</div>
-        {langs.length > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, marginBottom: 14 }}>
-            <span style={{ fontSize: 12, color: '#9CA3AF' }}>Interview language:</span>
-            {langs.map((l) => <span key={l} className="chip" onClick={() => setLang(l)} style={{ cursor: 'pointer', background: lang === l ? '#056FD4' : '#fff', color: lang === l ? '#fff' : '#6B7280', border: lang === l ? 'none' : '1px solid #E2E8F0' }}>{l}</span>)}
-          </div>
-        )}
-        <div style={{ fontSize: 19, fontWeight: 600, lineHeight: 1.5, marginBottom: 6 }}>“{question}”</div>
-        <div style={{ fontSize: 12, color: '#6D28D9', marginBottom: 4 }}><Wand2 size={13} style={{ verticalAlign: -2 }} /> adaptive follow-up based on your earlier answers</div>
-        <div style={{ fontSize: 11.5, color: '#9CA3AF', marginBottom: 22 }}>Conducted in {lang}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 70, height: 70, borderRadius: '50%', background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #056FD4' }}><Mic size={26} color="#056FD4" /></div>
-          <div style={{ fontSize: 12.5, color: '#6B7280' }}>Listening… speak your answer in {lang}</div>
-        </div>
-        <Cta onClick={() => (last ? finish(total) : setAsked((n) => n + 1))}>{last ? 'Finish interview →' : 'Answer & next question →'}</Cta>
-        {!last && <div onClick={() => finish(asked)} style={{ fontSize: 12, color: '#9CA3AF', marginTop: 11, cursor: 'pointer' }}>End the interview here</div>}
-      </div>
-    </Card>
-  );
-}
-
-function Rejected({ onExit }) {
-  return (
-    <Card>
-      <div style={{ textAlign: 'center' }}>
-        <div className="avatar" style={{ width: 64, height: 64, background: '#FEF3C7', color: '#B45309', margin: '0 auto 16px' }}><AlertTriangle size={30} /></div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 6px' }}>Thanks for applying</h1>
-        <div style={{ fontSize: 14, color: '#6B7280', marginBottom: 18 }}>Your resume didn’t clear the screening threshold for this role right now — you’ve been added to the <b>Candidate Pool</b>, and the recruiter can still review or rescue your profile.</div>
-        <Cta onClick={onExit}>Done</Cta>
-      </div>
-    </Card>
-  );
-}
-
-/* ── Result: weighted score from the modules the candidate actually did, vs threshold ── */
-function Result({ opp, scores, charges = [], onExit, onRecord }) {
-  const weights = opp.assessment?.weights || [];
-  const synth = (label) => label === 'Integrity' ? 94 : label.includes('Interview') ? (scores['AI Interview'] ?? 82) : 80;
-  const rows = weights.map((w) => ({ label: w.label, w: w.w, score: scores[w.label] ?? synth(w.label) }));
-  const totalW = rows.reduce((a, b) => a + (Number(b.w) || 0), 0) || 100;
-  const weighted = Math.round(rows.reduce((a, b) => a + (Number(b.w) || 0) * b.score, 0) / totalW);
-  const passMark = opp.criteria?.minAssessmentScore || 60;
-  const cleared = weighted >= passMark;
-  const spent = charges.reduce((a, c) => a + (Number(c.credits) || 0), 0);
-  /* hand the outcome to the parent once — the parent's fired-guard makes this idempotent under StrictMode */
-  useEffect(() => { onRecord && onRecord({ cleared, weighted, scores: Object.fromEntries(rows.map((r) => [r.label, r.score])) }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const releasedCr = charges.reduce((a, c) => a + (Number(c.released) || 0), 0);
-  return (
-    <Card>
-      <div style={{ textAlign: 'center' }}>
-        <div className="avatar" style={{ width: 64, height: 64, background: cleared ? '#DCFCE7' : '#FEF3C7', color: cleared ? '#16A34A' : '#B45309', margin: '0 auto 16px' }}><Check size={32} /></div>
-        <h1 style={{ fontSize: 23, fontWeight: 700, margin: '0 0 6px' }}>Assessment submitted 🎉</h1>
-        <div style={{ fontSize: 14, color: '#6B7280', marginBottom: 20 }}>Here’s how your responses scored.</div>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <span style={{ fontSize: 14, fontWeight: 700 }}>Weighted score</span>
-        <span style={{ fontSize: 24, fontWeight: 800, color: cleared ? '#16A34A' : '#D97706' }}>{weighted}<span style={{ fontSize: 13, color: '#9CA3AF' }}> / 100</span></span>
-      </div>
-      {rows.map((r) => (
-        <div key={r.label} style={{ marginBottom: 11 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}><span style={{ color: '#374151' }}>{r.label} <span style={{ color: '#9CA3AF' }}>· {r.w}%</span></span><b>{r.score}</b></div>
-          <Bar pct={r.score} />
-        </div>
-      ))}
-      <div style={{ background: cleared ? '#F0FDF4' : '#FFFBEB', border: `1px solid ${cleared ? '#BBF7D0' : '#FDE68A'}`, borderRadius: 10, padding: '12px 14px', marginTop: 12, fontSize: 13, color: cleared ? '#15803D' : '#92400E' }}>
-        {cleared ? <><Check size={15} style={{ verticalAlign: -3 }} /> Cleared — {weighted}% is above the {passMark}% bar. You’ll appear on the recruiter’s Rank List.</> : <>{weighted}% is below the {passMark}% bar for this role. The recruiter may still review your profile.</>}
-      </div>
-      {spent > 0 && (
-        <div style={{ marginTop: 14, border: '1px dashed #E2E8F0', background: '#F8FAFC', borderRadius: 10, padding: '10px 12px', fontSize: 11.5, lineHeight: 1.75, color: '#9CA3AF' }}>
-          <b style={{ color: '#6B7280' }}>Prototype note</b> · operator view — a real candidate never sees credits, wallet or money. This run consumed <b className="tnum" style={{ color: '#6B7280' }}>{fmtCr(spent)}</b>
-          {releasedCr > 0 && <> and released <b className="tnum" style={{ color: '#6B7280' }}>{fmtCr(releasedCr)}</b> of unused hold</>}: {charges.map((c) => `${c.label} ${c.credits}`).join(' · ')}. See Credits &amp; Wallet, or the ledger in Cuba Admin.
-        </div>
-      )}
-      <Cta onClick={onExit}>Done</Cta>
-    </Card>
   );
 }

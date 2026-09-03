@@ -45,7 +45,7 @@ export default function CandidateReport() {
   const nav = useNavigate();
   const {
     getOpportunity, getCandidates, getPool, provenanceFor, overrideDecision, clientOverrides, currentClient,
-    currentClientId, failedJobs, clientCanStart, rateOf, consumeCredits, recordUsage, addAudit,
+    currentClientId, failedJobs, clientCanStart, rateOf, consumeCredits, recordUsage, addAudit, createInvite,
   } = useApp();
   const opp = getOpportunity(id);
   const cand = getCandidates(id).find((c) => c.id === cid);
@@ -123,8 +123,9 @@ export default function CandidateReport() {
     }));
     recordUsage(currentClientId, { assessmentAttempts: 1, evaluations: 1, proctoringSessions: 1, interviews: retakeLines.some((l) => l.key === 'interview') ? 1 : 0 });
     addAudit('Assessment config', `Retake invited (${retakeCost} cr)`, `${cand.name} · ${opp.title}`, { clientId: currentClientId, actor: `${currentClient?.name || 'Client'} · Hiring Manager`, role: 'client' });
+    const inv = createInvite(id, { name: cand.name, email: cand.email || emailOf(cand.name), source: 'retake', attemptNo: 2 });
     setShowRetake(false);
-    show(`Retake invite sent to ${emailOf(cand.name)} — ${retakeCost} cr consumed`);
+    show(`Retake link sent to ${inv.email} — ${retakeCost} cr consumed`);
   };
 
   // provenance + human override (spec §11): every result reproducible, every override traceable & non-destructive
@@ -178,7 +179,7 @@ export default function CandidateReport() {
                 {heldJob && <span className="badge" style={{ background: '#F3F4F6', color: '#6B7280' }}>excluded from ranking</span>}
               </div>
               <div style={{ display: 'flex', gap: 16, fontSize: 12.5, color: '#6B7280', flexWrap: 'wrap' }}>
-                <span><Mail size={13} style={{ verticalAlign: -2 }} /> {emailOf(cand.name)}</span>
+                <span><Mail size={13} style={{ verticalAlign: -2 }} /> {cand.email || emailOf(cand.name)}</span>
                 <span><MapPin size={13} style={{ verticalAlign: -2 }} /> {opp.location || 'India'}</span>
                 <span><Calendar size={13} style={{ verticalAlign: -2 }} /> Completed {cand.clearedAt}</span>
               </div>

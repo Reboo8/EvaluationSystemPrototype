@@ -46,7 +46,7 @@ export function Modal({ title, onClose, children, width = 520, footer }) {
 }
 
 /* ── reason gate for high-risk actions (spec §14): reason + audit; critical → re-auth step ──
-   usage: const [ask, gateNode] = useReasonGate();  ask({ action:'client.suspend', title:'Suspend Flipkart', confirmLabel:'Suspend', danger:true }, (reason) => doIt(reason)) */
+   usage: const [ask, gateNode] = useReasonGate();  ask({ action:'client.suspend', title:'Suspend Northstar Group', confirmLabel:'Suspend', danger:true }, (reason) => doIt(reason)) */
 export function useReasonGate() {
   const { requiresReason, isCritical, can } = useApp();
   const [req, setReq] = useState(null);

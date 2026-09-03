@@ -11,8 +11,8 @@ import { ClientStatusBadge, Mono, Modal, EmptyRow } from '../components/admin/ui
    the team while ACTIVE — even with 0 credits; Owner / Recruiter / Hiring Manager / Viewer). Code samples keep their reboo8.com domains. ── */
 
 const origin = (typeof window !== 'undefined' && window.location.origin) || 'https://app.reboo8.com';
-const SLUG = 'flipkart';
-const TOKEN = 'emb_flipkart_demo_key';
+const SLUG = 'northstar';
+const TOKEN = 'emb_northstar_demo_key';
 const careerUrl = `${origin}/careers/${SLUG}`;
 const apiUrl = `${origin}/api/public/careers/${SLUG}`;
 const applyUrl = `${origin}/apply/${SLUG}`;
@@ -20,7 +20,7 @@ const iframeCode = `<iframe src="${careerUrl}?embed=true" width="100%" height="6
 const widgetDiv = `<div id="reboo8-jobs"></div>`;
 const widgetScript = `<script src="${origin}/widget.js" data-key="${TOKEN}" data-api="${origin}"></script>`;
 const apiFetch = `fetch("${apiUrl}")\n  .then(res => res.json())\n  .then(data => {\n    console.log(data.jobs, data.company);\n  });`;
-const apiResponse = `{\n  "success": true,\n  "company": { "name": "Flipkart", "industry": "E-Commerce", "logoUrl": null },\n  "jobs": [{\n    "id": "cmolxbc6w...",\n    "title": "Customer Support Agent",\n    "requiredPositions": 50,\n    "closingDate": "2026-08-15",\n    "requiredSkills": ["Communication", "CRM"],\n    "requiredLanguages": ["English", "Hindi"]\n  }]\n}`;
+const apiResponse = `{\n  "success": true,\n  "company": { "name": "Northstar Group", "industry": "Technology & Services", "logoUrl": null },\n  "jobs": [{\n    "id": "cmolxbc6w...",\n    "title": "Customer Support Agent",\n    "requiredPositions": 50,\n    "closingDate": "2026-08-15",\n    "requiredSkills": ["Communication", "CRM"],\n    "requiredLanguages": ["English", "Hindi"]\n  }]\n}`;
 const apiReact = `function Jobs() {\n  const [jobs, setJobs] = useState([]);\n  useEffect(() => {\n    fetch("${apiUrl}")\n      .then(r => r.json())\n      .then(d => setJobs(d.jobs));\n  }, []);\n  return jobs.map(j => (\n    <a key={j.id} href={"${applyUrl}?opportunityId=" + j.id}>\n      {j.title}\n    </a>\n  ));\n}`;
 
 const PW_RULES = [
@@ -62,8 +62,8 @@ function CodeBlock({ code, id, copied, onCopy }) {
 export default function Profile() {
   const { currentClient, clientTeam, inviteTeammate } = useApp();
   const cc = currentClient || {};
-  const [company, setCompany] = useState({ companyName: cc.name || 'Flipkart', industry: cc.industry || 'E-commerce / SaaS', website: cc.website ? (/^https?:/.test(cc.website) ? cc.website : 'https://' + cc.website) : 'https://flipkart.com' });
-  const [contact, setContact] = useState({ fullName: cc.owner?.name || 'Flipkart Admin', email: cc.owner?.email || 'hr@flipkart.com', phone: cc.owner?.phone || '+91 98765 43210' });
+  const [company, setCompany] = useState({ companyName: cc.name || 'Northstar Group', industry: cc.industry || 'Technology & Services', website: cc.website ? (/^https?:/.test(cc.website) ? cc.website : 'https://' + cc.website) : 'https://northstargroup.com' });
+  const [contact, setContact] = useState({ fullName: cc.owner?.name || 'Northstar Admin', email: cc.owner?.email || 'hr@northstargroup.com', phone: cc.owner?.phone || '+91 98765 43210' });
   const [inviteOpen, setInviteOpen] = useState(false);
   const [editC, setEditC] = useState(false);
   const [editP, setEditP] = useState(false);

@@ -12,7 +12,9 @@ import SendAssessment from './pages/SendAssessment.jsx';
 import RankList from './pages/RankList.jsx';
 import Compare from './pages/Compare.jsx';
 import CandidatePool from './pages/CandidatePool.jsx';
-import CandidateFlow from './pages/CandidateFlow.jsx';
+import CandidateFlow, { PreviewCandidate } from './pages/CandidateFlow.jsx';
+import CareersPage from './pages/CareersPage.jsx';
+import OpportunityInvites from './pages/OpportunityInvites.jsx';
 import CandidateReport from './pages/CandidateReport.jsx';
 import Billing from './pages/Billing.jsx';
 import Profile from './pages/Profile.jsx';
@@ -31,6 +33,7 @@ import AdminCompliance from './pages/AdminCompliance.jsx';
 import AdminAnalytics from './pages/AdminAnalytics.jsx';
 import AdminSettings from './pages/AdminSettings.jsx';
 import './index.css';
+import './candidate/candidate.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -45,6 +48,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/opportunities/:id" element={<OpportunityDetail />} />
             <Route path="/opportunities/:id/assessment" element={<AssessmentBuilder />} />
             <Route path="/opportunities/:id/send" element={<SendAssessment />} />
+            <Route path="/opportunities/:id/invites" element={<OpportunityInvites />} />
             <Route path="/opportunities/:id/rank" element={<RankList />} />
             <Route path="/opportunities/:id/candidate/:cid" element={<CandidateReport />} />
             <Route path="/opportunities/:id/compare" element={<Compare />} />
@@ -53,8 +57,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/profile" element={<Profile />} />
             <Route path="/support" element={<Support />} />
           </Route>
-          {/* ── Candidate run-time (unchanged) ── */}
-          <Route path="/candidate/:id" element={<CandidateFlow />} />
+          {/* ── Candidate side: public careers page → resume gate → personal assessment link ── */}
+          <Route path="/careers/:oppId" element={<CareersPage />} />
+          <Route path="/a/:token" element={<CandidateFlow />} />
+          <Route path="/candidate/:id" element={<PreviewCandidate />} />
           <Route path="/login" element={<Login />} />
           {/* ── Cuba Admin (operator control plane) ── */}
           <Route element={<AdminShell />}>

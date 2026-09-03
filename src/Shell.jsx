@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Home, Briefcase, Wallet, User, HelpCircle, Bell, LogOut, Eye, X, ShieldAlert, Archive, Pause, LifeBuoy, ArrowRight } from 'lucide-react';
+import { Home, Briefcase, Wallet, User, HelpCircle, Bell, LogOut, Eye, X, ShieldAlert, Archive, Pause, LifeBuoy, ArrowRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useApp, fmtCr, initials, JOB_KINDS } from './store.jsx';
 import { ClientStatusBadge, WalletStateBadge } from './components/admin/ui.jsx';
 
@@ -18,13 +18,14 @@ const num = (n) => (Number(n) || 0).toLocaleString('en-IN');
 
 function Item({ to, icon: Icon, label, badge }) {
   return (
-    <NavLink to={to} end className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
-      <Icon size={18} />
-      <span style={{ flex: 1 }}>{label}</span>
+    <NavLink to={to} end title={label} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
+      <Icon size={18} style={{ flexShrink: 0 }} />
+      <span className="nav-label" style={{ flex: 1 }}>{label}</span>
       {badge ? <span className="count-badge">{badge}</span> : null}
     </NavLink>
   );
 }
+const SB_KEY = 'cuba_sidebar_collapsed';
 
 /* wallet-driven notification (spec §06: dashboard warning + in-app notification) */
 function walletNotif(w) {
@@ -42,6 +43,9 @@ export default function Shell() {
   const { clientOpportunities: opportunities, impersonating, setImpersonating, currentClient, clientWallet, clientTickets, failedJobs, currentClientId, getPool } = useApp();
   const openCount = opportunities.filter((o) => o.status === 'OPEN').length;
   const [bellOpen, setBellOpen] = useState(false);
+  /* collapsible sidebar — remembered per browser */
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(SB_KEY) === '1'; } catch { return false; } });
+  const toggleSidebar = () => setCollapsed((v) => { const n = !v; try { localStorage.setItem(SB_KEY, n ? '1' : '0'); } catch { /* ignore */ } return n; });
 
   const c = currentClient || {};
   const w = clientWallet || { state: 'ZERO', available: 0, outstanding: 0 };
@@ -86,11 +90,11 @@ export default function Shell() {
     : `${fmtCr(w.available)} available`;
 
   return (
-    <>
+    <div className={collapsed ? 'sb-collapsed' : ''}>
       <aside className="sidebar">
         <div style={{ position: 'absolute', top: -40, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.07)' }} />
-        <div style={{ position: 'relative', padding: '0 8px' }}>
-          <div className="sb-logo">Cuba</div>
+        <div style={{ position: 'relative', padding: '0 8px' }} className="sb-brand">
+          <div className="sb-logo">{collapsed ? 'C' : 'Cuba'}</div>
           <div className="sb-sub">Client portal · by Reboo8</div>
         </div>
         <div className="sb-divider" />
@@ -106,13 +110,13 @@ export default function Shell() {
         </nav>
         <div style={{ marginTop: 'auto', position: 'relative' }}>
           <div className="sb-divider" />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px' }}>
-            <div className="avatar" style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 13 }}>{coIni}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="sb-footer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 8px' }} title={collapsed ? `${co} · Client Owner` : undefined}>
+            <div className="avatar" style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 13, flexShrink: 0 }}>{coIni}</div>
+            <div className="nav-label" style={{ flex: 1, minWidth: 0 }}>
               <div style={{ color: '#fff', fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{co}</div>
               <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11.5 }}>Client Owner</div>
             </div>
-            <LogOut size={18} color="rgba(255,255,255,0.7)" style={{ cursor: 'pointer' }} onClick={() => nav('/login')} />
+            <LogOut className="nav-label" size={18} color="rgba(255,255,255,0.7)" style={{ cursor: 'pointer' }} onClick={() => nav('/login')} />
           </div>
         </div>
       </aside>
@@ -125,7 +129,10 @@ export default function Shell() {
           </div>
         )}
         <header className="topbar">
-          <div style={{ fontSize: 15, fontWeight: 600, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Good morning, {firstName} 👋</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <button className="sb-toggle" onClick={toggleSidebar} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
+            <div style={{ fontSize: 15, fontWeight: 600, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Good morning, {firstName} 👋</div>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {/* wallet chip → Credits & Wallet */}
             <button onClick={() => nav('/billing')} title={`Wallet: ${w.state.replace(/_/g, ' ').toLowerCase()} · balance ${fmtCr(w.balance)} · reserved ${fmtCr(w.reserved)}`}
@@ -183,7 +190,7 @@ export default function Shell() {
         )}
         <main className="content"><Outlet /></main>
       </div>
-    </>
+    </div>
   );
 }
 
