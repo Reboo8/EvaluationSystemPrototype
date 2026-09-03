@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ShieldCheck, FileText, ListChecks, Code2, GitBranch, Languages, UserRound,
   Keyboard, Monitor, Mic, MessagesSquare, ClipboardList, Plus, Settings2, Trash2,
-  Sparkles, X, ChevronUp, ChevronDown, Check, Puzzle, Loader2, Coins, AlertTriangle, Lock,
+  Sparkles, X, ChevronUp, ChevronDown, Check, Puzzle, Loader2, Coins, AlertTriangle, Lock, LayoutTemplate,
 } from 'lucide-react';
 import { useApp, fmtCr, CLIENT_STATUS } from '../store.jsx';
 import { generateQuestions, suggestSkills } from '../ai.js';
@@ -47,6 +47,7 @@ export default function AssessmentBuilder() {
   const [editIdx, setEditIdx] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showSaveTpl, setShowSaveTpl] = useState(false);
+  const [tplOpen, setTplOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2000); };
 
@@ -128,24 +129,47 @@ export default function AssessmentBuilder() {
     'Integrity',
   ])).filter((k) => !weights.some((w) => w.label === k));
 
+  /* the weight that actually ranks candidates lives in `weights` (matched by label) — show that, not the module's stale copy */
+  const weightOf = (m) => weights.find((w) => w.label === (WEIGHT_LABEL[m.key] || metaOf(m.key).name))?.w;
+  const costLine = modules.filter((m) => m.key !== 'resume' && rateOf(m.key) > 0).map((m) => `${metaOf(m.key).name} ${rateOf(m.key)}`).concat(proctorRate ? [`Proctoring ${proctorRate}`] : []).join(' · ');
+  const deltaChip = costDelta !== 0 && <span className="chip" style={{ background: costDelta > 0 ? '#FEF3C7' : '#DCFCE7', color: costDelta > 0 ? '#B45309' : '#15803D' }}>{costDelta > 0 ? '+' : ''}{costDelta} cr vs {opp.assessment?.version || 'v1'}</span>;
+
   return (
     <>
       <div style={{ fontSize: 13, color: '#475569', marginBottom: 14 }}>
         <span style={{ color: '#056FD4', fontWeight: 600, cursor: 'pointer' }} onClick={() => nav('/opportunities/' + id)}>{opp.title}</span> › Configure Assessment
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
-        <div style={{ flex: '1 1 360px', minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-            <span style={{ whiteSpace: 'nowrap' }}>Configure Assessment</span>
-            <span className="badge" style={{ background: '#F3F4F6', color: '#6B7280' }}>Version {opp.assessment?.version || 'v1'}</span>
+      <div className="ab-head">
+        <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+            <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0, whiteSpace: 'nowrap' }}>Configure Assessment</h1>
+            <span className="badge" style={{ background: '#F3F4F6', color: '#6B7280' }}>{opp.assessment?.version || 'v1'}</span>
           </div>
-          <div style={{ fontSize: 13, color: '#6B7280', marginTop: 2, maxWidth: 560 }}>Compose modules, set rubrics and thresholds, and the rank weights. Saving creates a new version.</div>
+          <div style={{ fontSize: 13, color: '#6B7280', marginTop: 3 }}>Pick modules, decide how each is scored, and weight the rank list. Saving creates {nextVersion}.</div>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-          <span className="chip" style={{ background: totalW === 100 ? '#ECFDF5' : '#FEF2F2', color: totalW === 100 ? '#16A34A' : '#DC2626' }}>{modules.length} modules · weights {totalW}%</span>
+        <div className="ab-actions">
           <span className="chip" style={{ background: '#F8FAFF', color: '#056FD4', border: '1px solid #E0EDFF' }}><Coins size={12} /> {fmtCr(perCandidate)} / candidate{costDelta !== 0 && <b style={{ color: costDelta > 0 ? '#B45309' : '#15803D', marginLeft: 4 }}>{costDelta > 0 ? '+' : ''}{costDelta}</b>}</span>
-          <button className="btn-ghost" onClick={() => setShowSaveTpl(true)}><Sparkles size={14} /> Save as Template</button>
+          <div style={{ position: 'relative' }}>
+            <button className="btn-ghost" onClick={() => setTplOpen((v) => !v)}><LayoutTemplate size={14} /> Templates <ChevronDown size={14} style={{ opacity: 0.6 }} /></button>
+            {tplOpen && (<>
+              <div className="ab-backdrop" onClick={() => setTplOpen(false)} />
+              <div className="ab-menu">
+                <div className="ab-menu__title">Load a template</div>
+                {assessmentTemplates.length === 0 && <div className="ab-menu__empty">No templates yet.</div>}
+                {assessmentTemplates.map((t) => (
+                  <div key={t.id} className="ab-menu__row" onClick={() => { applyTemplate(t); setTplOpen(false); }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="ab-menu__name">{t.name}</div>
+                      <div className="ab-menu__meta">{(t.modules || []).length} modules · {(t.weights || []).length} weights{t.createdAt === 'Built-in' ? ' · built-in' : ''}</div>
+                    </div>
+                    <button className="ab-iconbtn ab-iconbtn--danger" title="Delete template" onClick={(e) => { e.stopPropagation(); deleteTemplate(t.id); showToast('Template deleted'); }}><Trash2 size={13} /></button>
+                  </div>
+                ))}
+                <div className="ab-menu__foot" onClick={() => { setTplOpen(false); setShowSaveTpl(true); }}><Sparkles size={13} /> Save the current setup as a template</div>
+              </div>
+            </>)}
+          </div>
           <button className="btn-primary" disabled={!!saveBlock} title={saveBlock || `Saves ${nextVersion}`} onClick={save}><Check size={15} /> Save assessment</button>
         </div>
       </div>
@@ -157,160 +181,147 @@ export default function AssessmentBuilder() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '290px 1fr', gap: 18, alignItems: 'start' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="ab-grid">
         {/* catalog */}
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Module Catalog</div>
-          <div style={{ fontSize: 11.5, color: '#9CA3AF', marginBottom: 6 }}>Add what this role needs</div>
-          <div style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', lineHeight: 1.5, marginBottom: 12 }}>Cuba Admin controls which modules are offered; you decide how they're used here.</div>
+        <div className="card ab-catalog">
+          <div className="ab-card__title">Add a module</div>
+          <div className="ab-card__sub" style={{ marginBottom: 10 }}>Tap + to add it to the flow.</div>
           {catalog.filter((c) => availOf(c.key).state !== 'DISABLED').map((c) => {
             const av = availOf(c.key);
             const isPaused = (av.note || '').toLowerCase().includes('paused');
             const already = ['resume', 'interview', 'typing', 'personality'].includes(c.key) && modules.some((m) => m.key === c.key);
             const canAdd = (av.ok || isPaused) && !already;
-            const greyed = !canAdd;
+            const rate = rateOf(c.key);
+            const tip = !canAdd ? (already ? 'Already in this assessment — one per assessment' : av.note) : `${c.name} · ${rate ? `${rate} cr ${unitOf(c.key)}` : 'free'}`;
             return (
-            <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', border: '1px solid #E2E8F0', borderRadius: 10, marginBottom: 8, opacity: greyed ? 0.5 : 1 }}>
-              <div className="icon-box" style={{ width: 32, height: 32, borderRadius: 8, background: c.custom ? '#EDE9FE' : '#E0EDFF', color: c.custom ? '#6D28D9' : '#056FD4' }}><c.icon size={16} /></div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  {c.name}
-                  {c.custom && <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9' }}>custom</span>}
-                  {av.state === 'BETA' && av.ok && !isPaused && <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9' }}>Beta</span>}
-                  {isPaused && <span className="badge" style={{ background: '#FEF3C7', color: '#B45309' }}>New attempts paused</span>}
+              <div key={c.key} className={`ab-cat${canAdd ? '' : ' ab-cat--off'}`} title={tip}>
+                <div className="ab-cat__icon" style={c.custom ? { background: '#EDE9FE', color: '#6D28D9' } : undefined}><c.icon size={15} /></div>
+                <div className="ab-cat__body">
+                  <div className="ab-cat__name">
+                    <span className="ab-ellipsis">{c.name}</span>
+                    {c.custom && <span className="ab-tag ab-tag--purple">Custom</span>}
+                    {av.state === 'BETA' && av.ok && !isPaused && <span className="ab-tag ab-tag--purple">Beta</span>}
+                    {isPaused && <span className="ab-tag ab-tag--amber">Paused</span>}
+                  </div>
+                  <div className="ab-cat__meta">{c.time} · {rate ? `${rate} cr` : 'free'}</div>
                 </div>
-                <div style={{ fontSize: 11, color: '#9CA3AF' }}>{c.time}{rateOf(c.key) > 0 ? <> · <b style={{ color: '#056FD4' }}>{rateOf(c.key)} cr</b> {unitOf(c.key)}</> : <> · <span style={{ color: '#15803D' }}>free</span></>}</div>
-                {greyed && av.note && <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 2 }}>{av.note}</div>}
+                {canAdd
+                  ? <button className="ab-iconbtn ab-iconbtn--add" aria-label={`Add ${c.name}`} onClick={() => addModule(c.key, c.custom ? { rubric: c.rubric || [] } : {})}><Plus size={15} /></button>
+                  : <span className="ab-cat__state">{already ? 'Added' : <Lock size={13} />}</span>}
               </div>
-              <button className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} disabled={!canAdd} title={!canAdd ? (already ? 'Already in this assessment — one per assessment' : av.note) : undefined} onClick={() => canAdd && addModule(c.key, c.custom ? { rubric: c.rubric || [] } : {})}>+ Add</button>
-            </div>
             );
           })}
-          <div onClick={() => setShowCreate(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 10px', border: '1.5px dashed #C7B8F5', borderRadius: 10, color: '#6D28D9', background: '#FAF8FF', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-            <Plus size={15} /> Create custom module
-          </div>
+          <button className="ab-link" onClick={() => setShowCreate(true)}><Plus size={14} /> Create a custom module</button>
         </div>
 
-        {/* saved templates */}
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Saved Templates</div>
-          <div style={{ fontSize: 11.5, color: '#9CA3AF', marginBottom: 12 }}>Reusable module + weight bundles · click Use to load</div>
-          {assessmentTemplates.length === 0 && <div style={{ fontSize: 12, color: '#9CA3AF', padding: '8px 0' }}>None yet — use “Save as Template” above.</div>}
-          {assessmentTemplates.map((t) => (
-            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', border: '1px solid #E2E8F0', borderRadius: 10, marginBottom: 8 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</div>
-                <div style={{ fontSize: 11, color: '#9CA3AF' }}>{(t.modules || []).length} modules · {(t.weights || []).length} params{t.createdAt === 'Built-in' ? ' · built-in' : ''}</div>
+        {/* flow + weights */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+          <div className="card" style={{ padding: '18px 20px 14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, marginBottom: 12 }}>
+              <div>
+                <div className="ab-card__title">Assessment flow</div>
+                <div className="ab-card__sub">Candidates run these in order. Configure each module's questions and scoring.</div>
               </div>
-              <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => applyTemplate(t)}>Use</button>
-              <Trash2 size={14} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => { deleteTemplate(t.id); showToast('Template deleted'); }} />
+              <span className="ab-muted" style={{ whiteSpace: 'nowrap', fontSize: 12.5 }}>{modules.length} module{modules.length === 1 ? '' : 's'}</span>
             </div>
-          ))}
-        </div>
-        </div>
 
-        {/* assessment + weights */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card" style={{ padding: '18px 20px' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Your Assessment <span style={{ color: '#9CA3AF', fontWeight: 600, fontSize: 13 }}>(candidate runs these in order)</span></div>
-            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 14 }}>Each module tests selected skills. Configure questions, rubric, threshold &amp; weight.</div>
-            {modules.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No modules yet — add from the catalog.</div>}
-            {modules.map((m, i) => {
-              const c = metaOf(m.key);
-              const av = availOf(m.key);
-              const isPaused = (av.note || '').toLowerCase().includes('paused');
-              return (
-                <div key={m.id || i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid #E2E8F0', borderRadius: 10, marginBottom: 10 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <ChevronUp size={15} color={i === 0 ? '#E2E8F0' : '#94A3B8'} style={{ cursor: i === 0 ? 'default' : 'pointer' }} onClick={() => i > 0 && moveModule(i, -1)} />
-                    <ChevronDown size={15} color={i === modules.length - 1 ? '#E2E8F0' : '#94A3B8'} style={{ cursor: i === modules.length - 1 ? 'default' : 'pointer' }} onClick={() => i < modules.length - 1 && moveModule(i, 1)} />
-                  </div>
-                  <div className="icon-box" style={{ width: 36, height: 36, borderRadius: 8 }}><c.icon size={18} /></div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      {i + 1}. {c.name}
-                      {m.key === 'resume' && <span className="badge" style={{ background: '#EFF6FF', color: '#056FD4' }}>gate</span>}
-                      {av.state === 'BETA' && av.ok && !isPaused && <span className="badge" style={{ background: '#EDE9FE', color: '#6D28D9' }}>Beta</span>}
-                      {isPaused && <span className="badge" style={{ background: '#FEF3C7', color: '#B45309' }}>New attempts paused</span>}
-                      {!av.ok && !isPaused && av.note && <span className="badge" style={{ background: '#FFEDD5', color: '#C2410C' }}>{av.note}</span>}
+            {modules.length === 0 ? <div className="ab-empty">No modules yet. Add one from the left.</div> : (
+              <div className="ab-list">
+                <div className="ab-list__cols"><span>Module</span><span>Weight</span><span>Cost</span><span /></div>
+                {modules.map((m, i) => {
+                  const c = metaOf(m.key);
+                  const av = availOf(m.key);
+                  const isPaused = (av.note || '').toLowerCase().includes('paused');
+                  const w = weightOf(m);
+                  const rate = rateOf(m.key);
+                  const parts = [
+                    m.skills?.length ? m.skills.slice(0, 4).join(', ') + (m.skills.length > 4 ? ` +${m.skills.length - 4}` : '') : null,
+                    m.questions?.length ? `${m.questions.length} question${m.questions.length === 1 ? '' : 's'}` : null,
+                    m.rubric?.length ? `${m.rubric.length} rubric dimension${m.rubric.length === 1 ? '' : 's'}` : null,
+                  ].filter(Boolean);
+                  const detail = m.key === 'typing' ? `${m.tWpm || 40} WPM · ${m.tAcc || 90}% accuracy` : parts.join(' · ') || 'Not configured yet';
+                  return (
+                    <div key={m.id || i} className="ab-row">
+                      <div className="ab-row__order">
+                        <button className="ab-order" disabled={i === 0} onClick={() => moveModule(i, -1)} aria-label="Move up"><ChevronUp size={13} /></button>
+                        <button className="ab-order" disabled={i === modules.length - 1} onClick={() => moveModule(i, 1)} aria-label="Move down"><ChevronDown size={13} /></button>
+                      </div>
+                      <div className="ab-row__num">{i + 1}</div>
+                      <div className="ab-row__icon"><c.icon size={16} /></div>
+                      <div className="ab-row__body">
+                        <div className="ab-row__name">
+                          <span>{c.name}</span>
+                          {m.key === 'resume' && <span className="ab-tag ab-tag--blue">Gate</span>}
+                          {av.state === 'BETA' && av.ok && !isPaused && <span className="ab-tag ab-tag--purple">Beta</span>}
+                          {isPaused && <span className="ab-tag ab-tag--amber">Paused</span>}
+                          {!av.ok && !isPaused && av.note && <span className="ab-tag ab-tag--amber">{av.note}</span>}
+                        </div>
+                        <div className="ab-row__detail">{detail}</div>
+                      </div>
+                      <div className="ab-row__val">{m.key === 'resume' ? <span className="ab-muted">gate</span> : w != null ? `${w}%` : <span className="ab-muted">—</span>}</div>
+                      <div className="ab-row__val">{rate ? `${rate} cr` : <span className="ab-muted">free</span>}</div>
+                      <div className="ab-row__actions">
+                        <button className="btn-ghost ab-btn-sm" onClick={() => setEditIdx(i)}><Settings2 size={13} /> Configure</button>
+                        <button className="ab-iconbtn ab-iconbtn--danger" title="Remove from the flow" onClick={() => removeModule(i)}><Trash2 size={14} /></button>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 11.5, color: '#9CA3AF' }}>tests: {m.skills?.length ? m.skills.join(', ') : '—'}{m.rubric?.length ? ` · ${m.rubric.length} rubric dims` : ''}{m.questions?.length ? ` · ${m.questions.length} Qs` : ''} · weight {m.weight || 0}% · <b style={{ color: rateOf(m.key) ? '#056FD4' : '#15803D' }}>{rateOf(m.key) ? `${rateOf(m.key)} cr ${unitOf(m.key)}` : 'free'}</b></div>
-                  </div>
-                  <button className="btn-ghost" style={{ padding: '6px 12px', fontSize: 12.5 }} onClick={() => setEditIdx(i)}><Settings2 size={14} /> Configure</button>
-                  <Trash2 size={16} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => removeModule(i)} />
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
 
-            {/* the price of this composition — the number this screen actually decides (spec §04) */}
             {modules.length > 0 && (
-              <div style={{ marginTop: 4, padding: '12px 16px', border: '1px solid #E0EDFF', background: '#F8FBFF', borderRadius: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <Coins size={15} color="#056FD4" />
-                  <div style={{ flex: 1, minWidth: 220 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>This assessment costs <span style={{ color: '#056FD4' }}>{fmtCr(perCandidate)}</span> per fully-evaluated candidate</div>
-                    <div style={{ fontSize: 11.5, color: '#6B7280', marginTop: 2 }}>
-                      {modules.filter((m) => m.key !== 'resume' && rateOf(m.key) > 0).map((m) => `${metaOf(m.key).name} ${rateOf(m.key)}`).concat(proctorRate ? [`Proctoring ${proctorRate}`] : []).join(' + ') || 'no paid modules'} cr
-                      {resumeRate > 0 && <> · resume gate adds <b>{resumeRate} cr</b> per applicant screened</>}
-                    </div>
-                  </div>
-                  {costDelta !== 0 && (
-                    <span className="chip" style={{ background: costDelta > 0 ? '#FEF3C7' : '#DCFCE7', color: costDelta > 0 ? '#B45309' : '#15803D' }}>
-                      {opp.assessment?.version || 'v1'} → {nextVersion}: {costDelta > 0 ? '+' : ''}{costDelta} cr / candidate
-                    </span>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 8 }}>Rates come from the live Cuba rate card — if Cuba changes a rate, this figure moves. Credits are consumed only when a service actually runs.</div>
+              <div className="ab-cost" title="Rates come from the live rate card. Credits are consumed only when a service actually runs.">
+                <Coins size={14} color="#056FD4" />
+                <span style={{ flex: 1, minWidth: 200 }}><b>{fmtCr(perCandidate)}</b> per fully evaluated candidate <span className="ab-muted">· {costLine || 'no paid modules'}{resumeRate > 0 ? ` · resume gate ${resumeRate} cr per applicant` : ''}</span></span>
+                {deltaChip}
               </div>
             )}
           </div>
 
           {/* weights */}
           <div className="card" style={{ padding: '18px 20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>Scoring weights &amp; thresholds</div>
-              <button className="copilot" onClick={suggestWeights}><Sparkles size={14} /> AI: suggest weights</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+              <div>
+                <div className="ab-card__title">Rank weights</div>
+                <div className="ab-card__sub">How much each score counts toward the rank order. Must total 100%. Who clears is decided by the thresholds inside each module.</div>
+              </div>
+              <button className="copilot" style={{ flexShrink: 0 }} onClick={suggestWeights}><Sparkles size={14} /> Suggest weights</button>
             </div>
-            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 14 }}>Thresholds = the <b>gate</b> (who clears). Weights = the <b>order</b> (rank). Must total 100%. Each parameter is matched to a candidate sub-score <b>by name</b>.</div>
 
             {unmatched.length > 0 && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, color: '#B45309', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '9px 12px', marginBottom: 12 }}>
+              <div className="ab-warn">
                 <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
-                <span><b>{unmatched.map((u) => u.label).join(', ')}</b> {unmatched.length === 1 ? 'has' : 'have'} no sub-score on any of the {existing.length} already-scored candidate{existing.length === 1 ? '' : 's'} — {unmatched.length === 1 ? 'it counts' : 'they count'} as 0 and would lower every weighted score at once. Remove {unmatched.length === 1 ? 'it' : 'them'}, or keep {unmatched.length === 1 ? 'it' : 'them'} only for candidates evaluated from now on.</span>
+                <span><b>{unmatched.map((u) => u.label).join(', ')}</b> {unmatched.length === 1 ? 'has' : 'have'} no sub-score on the {existing.length} candidate{existing.length === 1 ? '' : 's'} already scored, so {unmatched.length === 1 ? 'it counts' : 'they count'} as 0 for them. Remove {unmatched.length === 1 ? 'it' : 'them'}, or keep {unmatched.length === 1 ? 'it' : 'them'} for candidates evaluated from now on.</span>
               </div>
             )}
 
-            {weights.map((p, i) => {
-              const ok = known(p.label);
-              return (
-                <div key={p.label + '-' + i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                  <div style={{ flex: 1, fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                    {p.label}
-                    {!ok && <span className="badge" style={{ background: '#FEF3C7', color: '#B45309' }}>no sub-score</span>}
+            <div className="ab-weights">
+              {weights.map((p, i) => {
+                const ok = known(p.label);
+                const pct = Math.max(0, Math.min(100, Number(p.w) || 0));
+                return (
+                  <div key={p.label + '-' + i} className="ab-weight">
+                    <div className="ab-weight__label"><span className="ab-ellipsis">{p.label}</span>{!ok && <span className="ab-tag ab-tag--amber">no sub-score yet</span>}</div>
+                    <div className="ab-weight__bar"><div className="ab-weight__fill" style={{ width: pct + '%' }} /></div>
+                    <input type="number" min={0} max={100} value={p.w} onChange={(e) => setWeights((w) => w.map((x, j) => (j === i ? { ...x, w: Number(e.target.value) } : x)))} className="ab-weight__input" style={!ok ? { borderColor: '#FDE68A' } : undefined} />
+                    <span className="ab-muted">%</span>
+                    <button className="ab-iconbtn ab-iconbtn--danger" title="Remove" onClick={() => setWeights((w) => w.filter((_, j) => j !== i))}><Trash2 size={13} /></button>
                   </div>
-                  <input type="number" value={p.w} onChange={(e) => setWeights((w) => w.map((x, j) => (j === i ? { ...x, w: Number(e.target.value) } : x)))}
-                    style={{ width: 64, padding: '7px 8px', border: `1px solid ${ok ? '#E2E8F0' : '#FDE68A'}`, borderRadius: 8, fontSize: 13, textAlign: 'center', fontFamily: 'inherit' }} />
-                  <span style={{ fontSize: 13, color: '#9CA3AF' }}>%</span>
-                  <Trash2 size={15} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => setWeights((w) => w.filter((_, j) => j !== i))} />
-                </div>
-              );
-            })}
+                );
+              })}
+              {weights.length === 0 && <div className="ab-empty">No weights yet. Add a parameter or use Suggest weights.</div>}
+            </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-              <select className="input" value="" style={{ width: 'auto', minWidth: 200, padding: '7px 10px', fontSize: 12.5 }}
+            <div className="ab-weights__foot">
+              <select className="input ab-select" value="" title={scoreKeys.length ? 'Only sub-scores this role’s candidates actually carry' : 'Parameters are matched by name when results arrive'}
                 onChange={(e) => { const v = e.target.value; if (!v) return; setWeights((w) => [...w, { label: v, w: 0 }]); }}>
-                <option value="">+ Add parameter…</option>
+                <option value="">Add a parameter…</option>
                 {paramOptions.length === 0 && <option value="" disabled>Every known sub-score is already weighted</option>}
                 {paramOptions.map((k) => <option key={k} value={k}>{k}</option>)}
               </select>
-              <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>{scoreKeys.length ? 'Only sub-scores this role’s candidates actually carry.' : 'No scored candidates yet — parameters are matched by name when results arrive.'}</span>
+              <div className={`ab-total ${totalW === 100 ? 'ab-total--ok' : 'ab-total--bad'}`}>Total {totalW}% {totalW === 100 ? <Check size={15} /> : <span className="ab-total__note">must equal 100%</span>}</div>
             </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTop: '1px solid #F3F4F6', fontSize: 14, fontWeight: 700 }}>
-              <span>Total</span><span style={{ color: totalW === 100 ? '#16A34A' : '#DC2626' }}>{totalW}% {totalW === 100 ? '✓' : '— must equal 100%'}</span>
-            </div>
-            {saveBlock && <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 8 }}>{saveBlock}</div>}
           </div>
         </div>
       </div>
@@ -319,6 +330,7 @@ export default function AssessmentBuilder() {
         <ConfigModal
           module={modules[editIdx]}
           name={metaOf(modules[editIdx].key).name}
+          icon={metaOf(modules[editIdx].key).icon}
           roleTitle={opp.title}
           roleSkills={opp.skills}
           onClose={() => setEditIdx(null)}
@@ -420,7 +432,7 @@ function CreateModuleModal({ onClose, onCreate }) {
 }
 
 /* ── per-module config (skills, questions, RUBRIC, thresholds, weight) ── */
-function ConfigModal({ module, name, roleTitle, roleSkills, onClose, onSave }) {
+function ConfigModal({ module, name, icon: Icon = FileText, roleTitle, roleSkills, onClose, onSave }) {
   const [m, setM] = useState({ skills: [], rubric: [], nQ: 3, gate: '', weight: 0, questions: [], bands: DEFAULT_BANDS, minFit: 50, knockout: true, tWpm: 40, tAcc: 90, resumeParams: DEFAULT_RESUME_PARAMS, passThreshold: 80, ...module });
   const [skillDraft, setSkillDraft] = useState('');
   const [rubricDraft, setRubricDraft] = useState('');
@@ -462,149 +474,141 @@ function ConfigModal({ module, name, roleTitle, roleSkills, onClose, onSave }) {
     catch (e) { alert('AI failed: ' + e.message); } finally { setMaBusy(false); }
   };
 
+  const blurb = isResume ? 'Screens every applicant before any paid module runs.'
+    : isTyping ? 'A timed passage measures speed and accuracy.'
+    : isInterview ? 'An adaptive spoken interview. Add the topics to probe and any questions it must ask.'
+    : m.key === 'mcq' ? 'Auto-marked questions with one right answer.'
+    : isLanguage ? 'CEFR-scored reading, writing, listening and speaking.'
+    : 'Set what it tests, the questions, and how answers are scored.';
+  let n = 0; const next = () => ++n;
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,33,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={onClose}>
-      <div className="card" style={{ width: 640, maxWidth: '92vw', maxHeight: '88vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', borderBottom: '1px solid #E2E8F0' }}>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>Configure: {name}</div>
-          <X size={20} color="#6B7280" style={{ cursor: 'pointer' }} onClick={onClose} />
+    <div className="ab-overlay" onClick={onClose}>
+      <div className="card ab-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ab-modal__head">
+          <div className="ab-row__icon" style={{ width: 38, height: 38 }}><Icon size={18} /></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16.5, fontWeight: 700 }}>{name}</div>
+            <div style={{ fontSize: 12.5, color: '#6B7280', marginTop: 1 }}>{blurb}</div>
+          </div>
+          <button className="ab-iconbtn" aria-label="Close" onClick={onClose}><X size={17} /></button>
         </div>
-        <div style={{ padding: 22 }}>
-          {/* skills — label adapts to module type; hidden for typing */}
-          {!isTyping && (<>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <label className="field-label" style={{ margin: 0 }}>{isResume ? 'Must-have skills (knockout if missing)' : isInterview ? 'Skills / topics to probe' : 'Skills this module tests'}</label>
-              <button className="copilot" onClick={aiSuggestSkills} disabled={skillBusy}>{skillBusy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} AI: suggest</button>
-            </div>
-            <div className="input" style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center', marginBottom: 6 }}>
-              {m.skills.map((s) => <span className="skill-chip" key={s}>{s}<X size={11} style={{ cursor: 'pointer' }} onClick={() => setM({ ...m, skills: m.skills.filter((x) => x !== s) })} /></span>)}
-              <input value={skillDraft} onChange={(e) => setSkillDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())} placeholder="add skill + Enter" style={{ flex: 1, minWidth: 110, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', fontFamily: 'inherit' }} />
-            </div>
-          </>)}
 
-          {/* QUESTIONS — only for question-based modules (written / mcq / coding / sjt / custom) */}
-          {isQ && (
-            <div style={{ margin: '16px 0' }}>
-              <QuestionEditor questions={m.questions || []} onChange={(qs) => setM({ ...m, questions: qs })} moduleKey={m.key} moduleName={name} defaultSkill={m.skills[0]} />
-            </div>
+        <div className="ab-modal__body">
+          {!isTyping && (
+            <Section n={next()} title={isResume ? 'Must-have skills' : isInterview ? 'Topics to probe' : 'What it tests'} sub={isResume ? 'Applicants missing one of these can be rejected at the gate.' : 'Questions and scoring are built around these.'}
+              action={<button className="ab-ai" onClick={aiSuggestSkills} disabled={skillBusy}>{skillBusy ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />} Suggest</button>}>
+              <div className="input ab-chips">
+                {m.skills.map((sk) => <span className="skill-chip" key={sk}>{sk}<X size={11} style={{ cursor: 'pointer' }} onClick={() => setM({ ...m, skills: m.skills.filter((x) => x !== sk) })} /></span>)}
+                <input value={skillDraft} onChange={(e) => setSkillDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())} placeholder={m.skills.length ? 'Add another…' : 'Type a skill and press Enter'} className="ab-chips__input" />
+              </div>
+            </Section>
           )}
 
-          {/* RESUME — a weighted, multi-parameter gate (no questions) */}
+          {isQ && <QuestionEditor n={next()} questions={m.questions || []} onChange={(qs) => setM({ ...m, questions: qs })} moduleKey={m.key} moduleName={name} defaultSkill={m.skills[0]} />}
+
           {isResume && (
-            <div style={{ margin: '16px 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <label className="field-label" style={{ margin: 0 }}>Resume parameters <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(each scored 0–100 by the analyser, then weighted)</span></label>
-                <button className="copilot" onClick={suggestResumeParams}><Sparkles size={14} /> AI: suggest</button>
-              </div>
-              <div className="hint" style={{ marginTop: 2, marginBottom: 10 }}>The weighted total must cross the pass threshold to clear the gate. <b>Skills</b> &amp; <b>Work experience</b> are mandatory; add more as needed.</div>
-              <div style={{ display: 'flex', gap: 8, fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#9CA3AF', marginBottom: 6 }}>
-                <span style={{ flex: 1 }}>Parameter</span><span style={{ width: 70, textAlign: 'center' }}>Weight %</span><span style={{ width: 70, textAlign: 'center' }}>Min</span><span style={{ width: 18 }} />
-              </div>
-              {(m.resumeParams || []).map((p, i) => (
-                <div key={p.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <input className="input" value={p.label} disabled={p.mandatory} onChange={(e) => setParam(i, 'label', e.target.value)} style={{ flex: 1, ...(p.mandatory ? { background: '#F8FAFC', color: '#475569' } : {}) }} />
-                  <input type="number" value={p.weight} onChange={(e) => setParam(i, 'weight', Number(e.target.value))} style={{ ...num, width: 70, textAlign: 'center' }} />
-                  <input type="number" value={p.min} onChange={(e) => setParam(i, 'min', Number(e.target.value))} style={{ ...num, width: 70, textAlign: 'center' }} title="Per-parameter minimum (optional)" />
-                  {p.mandatory ? <span style={{ width: 18 }} /> : <Trash2 size={15} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => setM({ ...m, resumeParams: m.resumeParams.filter((_, j) => j !== i) })} />}
-                </div>
-              ))}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, margin: '4px 0 10px' }}>
-                {RESUME_PRESETS.filter((l) => !(m.resumeParams || []).some((p) => p.label === l)).map((l) => (
-                  <button key={l} className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => setM({ ...m, resumeParams: [...m.resumeParams, { id: rid(), label: l, weight: 0, min: 0 }] })}>+ {l}</button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid #F3F4F6', fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
-                <span>Parameter weights total</span><span style={{ color: rpTotal === 100 ? '#16A34A' : '#DC2626' }}>{rpTotal}% {rpTotal === 100 ? '✓' : '— must equal 100%'}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <span style={{ fontSize: 13, color: '#374151', fontWeight: 600 }}>Pass threshold</span>
-                <input type="number" value={m.passThreshold} onChange={(e) => setM({ ...m, passThreshold: Number(e.target.value) })} style={{ ...num, width: 80, textAlign: 'center' }} /><span style={{ fontSize: 12, color: '#9CA3AF' }}>% weighted score to clear the gate</span>
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#374151', cursor: 'pointer' }}>
-                <input type="checkbox" checked={m.knockout} onChange={(e) => setM({ ...m, knockout: e.target.checked })} /> Auto-reject candidates missing a must-have skill
-              </label>
-              <div className="hint" style={{ marginTop: 10 }}>Example: Skills 50% · Work experience 50% — a candidate scoring 90 &amp; 90 → <b>90%</b> weighted, above a {m.passThreshold}% threshold → <b>passes</b>.</div>
-            </div>
-          )}
-
-          {/* TYPING — speed + accuracy targets, not questions */}
-          {isTyping && (
-            <div style={{ margin: '0 0 16px' }}>
-              <label className="field-label">Typing targets</label>
-              <div className="hint" style={{ marginTop: -2, marginBottom: 10 }}>A timed passage measures speed + accuracy — no questions to author.</div>
-              <div style={{ display: 'flex', gap: 18 }}>
-                <div><div style={lbl}>Target speed (WPM)</div><input type="number" value={m.tWpm} onChange={(e) => setM({ ...m, tWpm: Number(e.target.value) })} style={{ ...num, width: 100 }} /></div>
-                <div><div style={lbl}>Min accuracy (%)</div><input type="number" value={m.tAcc} onChange={(e) => setM({ ...m, tAcc: Number(e.target.value) })} style={{ ...num, width: 100 }} /></div>
-              </div>
-            </div>
-          )}
-
-          {/* RUBRIC — for AI/human-graded modules (not resume, typing, mcq) */}
-          {showRubric && (<>
-            <label className="field-label">Rubric — scoring dimensions <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(what the score is made of)</span></label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 8 }}>
-              {m.rubric.map((r) => <span className="skill-chip" key={r} style={{ background: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}>{r}<X size={11} style={{ cursor: 'pointer' }} onClick={() => setM({ ...m, rubric: m.rubric.filter((x) => x !== r) })} /></span>)}
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-              <input className="input" value={rubricDraft} onChange={(e) => setRubricDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addRubric())} placeholder="e.g. Problem solving" />
-              <button className="btn-ghost" onClick={addRubric}>Add</button>
-              <button className="copilot" onClick={() => setM({ ...m, rubric: Array.from(new Set([...m.rubric, 'Domain knowledge', 'Problem solving', 'Communication'])) })}><Sparkles size={14} /> AI</button>
-            </div>
-            <div className="hint" style={{ marginBottom: 14 }}>Reference answers + partial-credit are attached per dimension (AI can draft them).</div>
-          </>)}
-
-          {/* languages — multilingual (interview / language modules) */}
-          {(isInterview || isLanguage) && (
-            <>
-              <label className="field-label">Languages offered <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(multilingual — candidate picks one)</span></label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 8 }}>
-                {(m.languages || []).map((l) => <span className="skill-chip" key={l} style={{ background: '#FFF7ED', color: '#C2410C', borderColor: '#FED7AA' }}>{l}<X size={11} style={{ cursor: 'pointer' }} onClick={() => setM({ ...m, languages: (m.languages || []).filter((x) => x !== l) })} /></span>)}
-                {(m.languages || []).length === 0 && <span style={{ fontSize: 12, color: '#9CA3AF' }}>None yet — add below.</span>}
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 14 }}>
-                {['English', 'Hindi', 'Tamil', 'Telugu', 'Kannada', 'Marathi', 'Bengali'].filter((l) => !(m.languages || []).includes(l)).map((l) => (
-                  <button key={l} className="btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => setM({ ...m, languages: [...(m.languages || []), l] })}>+ {l}</button>
-                ))}
-              </div>
-
-              {/* HR's must-ask questions — the AI interviewer always asks these (interview stays adaptive around them) */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <label className="field-label" style={{ margin: 0 }}>Must-ask questions <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(the AI interviewer always asks these)</span></label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn-ghost" style={{ padding: '5px 11px', fontSize: 12 }} onClick={addMustAsk}><Plus size={13} /> Add</button>
-                  <button className="copilot" onClick={aiMustAsk} disabled={maBusy}>{maBusy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} AI: suggest</button>
-                </div>
-              </div>
-              {(m.questions || []).length === 0 && <div className="hint" style={{ marginBottom: 14 }}>None yet — the interview stays fully adaptive. Add questions the interviewer must always cover.</div>}
-              <div style={{ marginBottom: 14 }}>
-                {(m.questions || []).map((q, i) => (
-                  <div key={q.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#9CA3AF' }}>{i + 1}</span>
-                    <input className="input" value={q.text} onChange={(e) => setM((s) => ({ ...s, questions: s.questions.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)) }))} placeholder="e.g. Walk me through a system you designed end-to-end and the trade-offs." style={{ flex: 1 }} />
-                    <Trash2 size={15} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => setM((s) => ({ ...s, questions: s.questions.filter((_, j) => j !== i) }))} />
+            <Section n={next()} title="Resume parameters" sub="Each parameter is scored 0–100 by the analyser, then weighted. The weighted total must cross the pass mark."
+              action={<button className="ab-ai" onClick={suggestResumeParams}><Sparkles size={13} /> Suggest</button>}>
+              <div className="ab-table">
+                <div className="ab-table__cols"><span>Parameter</span><span>Weight %</span><span>Min score</span><span /></div>
+                {(m.resumeParams || []).map((p, i) => (
+                  <div key={p.id} className="ab-table__row">
+                    <input className="input" value={p.label} disabled={p.mandatory} onChange={(e) => setParam(i, 'label', e.target.value)} style={p.mandatory ? { background: '#F8FAFC', color: '#475569' } : undefined} />
+                    <input type="number" value={p.weight} onChange={(e) => setParam(i, 'weight', Number(e.target.value))} className="ab-num" />
+                    <input type="number" value={p.min} onChange={(e) => setParam(i, 'min', Number(e.target.value))} className="ab-num" title="Per-parameter minimum (optional)" />
+                    {p.mandatory ? <span title="Always part of the gate"><Lock size={13} color="#CBD5E1" /></span> : <button className="ab-iconbtn ab-iconbtn--danger" onClick={() => setM({ ...m, resumeParams: m.resumeParams.filter((_, j) => j !== i) })}><Trash2 size={13} /></button>}
                   </div>
                 ))}
               </div>
-            </>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '8px 0 12px' }}>
+                {RESUME_PRESETS.filter((l) => !(m.resumeParams || []).some((p) => p.label === l)).map((l) => (
+                  <button key={l} className="ab-pillbtn" onClick={() => setM({ ...m, resumeParams: [...m.resumeParams, { id: rid(), label: l, weight: 0, min: 0 }] })}>+ {l}</button>
+                ))}
+              </div>
+              <div className="ab-inline">
+                <div className={`ab-total ${rpTotal === 100 ? 'ab-total--ok' : 'ab-total--bad'}`}>Weights {rpTotal}% {rpTotal === 100 ? <Check size={14} /> : <span className="ab-total__note">must equal 100%</span>}</div>
+                <div className="ab-inline__field"><span>Pass mark</span><input type="number" value={m.passThreshold} onChange={(e) => setM({ ...m, passThreshold: Number(e.target.value) })} className="ab-num" /><span className="ab-muted">% weighted</span></div>
+                <label className="ab-check"><input type="checkbox" checked={m.knockout} onChange={(e) => setM({ ...m, knockout: e.target.checked })} /> Reject if a must-have skill is missing</label>
+              </div>
+            </Section>
           )}
 
-          {/* thresholds — Hallo-style score bands (not for resume/typing which have their own gate) */}
-          {showBands && (<>
-            <label className="field-label">Thresholds — score bands (the gate)</label>
-            <div className="hint" style={{ marginTop: -2, marginBottom: 8 }}>One band per outcome: <b>From–To</b> score → <b>Label</b> (e.g. Reject / Review / Advance). Candidates are gated by these.</div>
-            <BandEditor bands={m.bands} onChange={(b) => setM({ ...m, bands: b })} />
-          </>)}
+          {isTyping && (
+            <Section n={next()} title="Targets" sub="Candidates type a one-minute passage. Both targets must be met to pass.">
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                <div><div style={lbl}>Speed (words per minute)</div><input type="number" value={m.tWpm} onChange={(e) => setM({ ...m, tWpm: Number(e.target.value) })} className="ab-num" style={{ width: 110 }} /></div>
+                <div><div style={lbl}>Accuracy (%)</div><input type="number" value={m.tAcc} onChange={(e) => setM({ ...m, tAcc: Number(e.target.value) })} className="ab-num" style={{ width: 110 }} /></div>
+              </div>
+            </Section>
+          )}
 
-          {/* weight */}
-          <label className="field-label">Rank weight (toward the final order)</label>
-          <input type="number" value={m.weight} onChange={(e) => setM({ ...m, weight: Number(e.target.value) })} style={{ ...num, width: 110 }} /> <span style={{ fontSize: 12, color: '#9CA3AF' }}>% of final rank</span>
+          {(isInterview || isLanguage) && (
+            <Section n={next()} title="Languages" sub="Candidates pick one of these.">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {(m.languages || []).map((l) => <span className="skill-chip" key={l} style={{ background: '#FFF7ED', color: '#C2410C', borderColor: '#FED7AA' }}>{l}<X size={11} style={{ cursor: 'pointer' }} onClick={() => setM({ ...m, languages: (m.languages || []).filter((x) => x !== l) })} /></span>)}
+                {['English', 'Hindi', 'Tamil', 'Telugu', 'Kannada', 'Marathi', 'Bengali'].filter((l) => !(m.languages || []).includes(l)).map((l) => (
+                  <button key={l} className="ab-pillbtn" onClick={() => setM({ ...m, languages: [...(m.languages || []), l] })}>+ {l}</button>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {isInterview && (
+            <Section n={next()} title="Must-ask questions" sub="The interviewer always covers these and adapts around them. Leave empty for a fully adaptive interview."
+              action={<div className="ab-sec__actions"><button className="btn-ghost ab-btn-sm" onClick={addMustAsk}><Plus size={13} /> Add</button><button className="ab-ai" onClick={aiMustAsk} disabled={maBusy}>{maBusy ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />} Suggest</button></div>}>
+              {(m.questions || []).map((q, i) => (
+                <div key={q.id} className="ab-qline">
+                  <span className="ab-row__num">{i + 1}</span>
+                  <input className="input" value={q.text} onChange={(e) => setM((st) => ({ ...st, questions: st.questions.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)) }))} placeholder="e.g. Walk me through a system you designed end-to-end and the trade-offs." />
+                  <button className="ab-iconbtn ab-iconbtn--danger" onClick={() => setM((st) => ({ ...st, questions: st.questions.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
+                </div>
+              ))}
+            </Section>
+          )}
+
+          {(showRubric || showBands) && (
+            <Section n={next()} title="Scoring" sub={showRubric && showBands ? 'Rubric dimensions make up the score. Bands turn the score into an outcome.' : showBands ? 'Bands turn the score into an outcome.' : 'Rubric dimensions make up the score.'}>
+              {showRubric && (
+                <div style={{ marginBottom: showBands ? 16 : 0 }}>
+                  <div className="ab-sub">Rubric <button className="ab-ai" style={{ marginLeft: 'auto' }} onClick={() => setM({ ...m, rubric: Array.from(new Set([...m.rubric, 'Domain knowledge', 'Problem solving', 'Communication'])) })}><Sparkles size={13} /> Suggest</button></div>
+                  <div className="input ab-chips">
+                    {m.rubric.map((r) => <span className="skill-chip" key={r} style={{ background: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}>{r}<X size={11} style={{ cursor: 'pointer' }} onClick={() => setM({ ...m, rubric: m.rubric.filter((x) => x !== r) })} /></span>)}
+                    <input value={rubricDraft} onChange={(e) => setRubricDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addRubric())} placeholder={m.rubric.length ? 'Add a dimension…' : 'e.g. Problem solving — press Enter'} className="ab-chips__input" />
+                  </div>
+                </div>
+              )}
+              {showBands && (<>
+                <div className="ab-sub">Score bands</div>
+                <BandEditor bands={m.bands} onChange={(b) => setM({ ...m, bands: b })} />
+              </>)}
+            </Section>
+          )}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '16px 22px', borderTop: '1px solid #E2E8F0' }}>
+
+        <div className="ab-modal__foot">
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn-primary" onClick={() => onSave({ ...m, gate: computeGate() })}>Save module</button>
         </div>
       </div>
     </div>
+  );
+}
+
+/* numbered section inside the module editor */
+function Section({ n, title, sub, action, children }) {
+  return (
+    <section className="ab-sec">
+      <div className="ab-sec__head">
+        <div className="ab-sec__n">{n}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="ab-sec__title">{title}</div>
+          {sub && <div className="ab-sec__sub">{sub}</div>}
+        </div>
+        {action}
+      </div>
+      <div className="ab-sec__body">{children}</div>
+    </section>
   );
 }
 
@@ -620,25 +624,29 @@ const DEFAULT_RESUME_PARAMS = [
 ];
 const RESUME_PRESETS = ['Education', 'Positions of responsibility', 'Certifications', 'Projects', 'Domain relevance', 'Communication'];
 
+const bandTone = (label = '') => (/reject|fail|no/i.test(label) ? '#EF4444' : /review|hold|maybe/i.test(label) ? '#F59E0B' : /advance|pass|clear|yes|hire/i.test(label) ? '#16A34A' : '#056FD4');
 function BandEditor({ bands, onChange, max = 100 }) {
   const rows = bands && bands.length ? bands : DEFAULT_BANDS;
-  const num = { width: 68, padding: '7px 8px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', textAlign: 'center' };
   const set = (i, k, v) => onChange(rows.map((b, j) => (j === i ? { ...b, [k]: k === 'label' ? v : (v === '' ? '' : Number(v)) } : b)));
-  const add = () => onChange([...rows, { from: (Number(rows[rows.length - 1]?.to) || 0) + 1, to: max, label: 'New' }]);
+  const add = () => onChange([...rows, { from: (Number(rows[rows.length - 1]?.to) || 0) + 1, to: max, label: 'New band' }]);
+  const span = rows.reduce((a, b) => a + Math.max(0, (Number(b.to) || 0) - (Number(b.from) || 0) + 1), 0) || 1;
   return (
-    <div style={{ border: '1px solid #E2E8F0', borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
-      <div style={{ display: 'flex', gap: 8, fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#9CA3AF', marginBottom: 6 }}>
-        <span style={{ width: 68 }}>From</span><span style={{ width: 68 }}>To</span><span style={{ flex: 1 }}>Label</span><span style={{ width: 18 }} />
+    <div>
+      <div className="ab-bands" aria-hidden="true">
+        {rows.map((b, i) => <div key={i} className="ab-bands__seg" style={{ flex: Math.max(0, (Number(b.to) || 0) - (Number(b.from) || 0) + 1) / span, background: bandTone(b.label) }} title={`${b.label} ${b.from}–${b.to}`} />)}
       </div>
-      {rows.map((b, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <input type="number" value={b.from} onChange={(e) => set(i, 'from', e.target.value)} style={num} />
-          <input type="number" value={b.to} onChange={(e) => set(i, 'to', e.target.value)} style={num} />
-          <input className="input" value={b.label} onChange={(e) => set(i, 'label', e.target.value)} placeholder="e.g. Pass" style={{ flex: 1 }} />
-          <Trash2 size={15} color="#EF4444" style={{ cursor: 'pointer' }} onClick={() => onChange(rows.filter((_, j) => j !== i))} />
-        </div>
-      ))}
-      <button className="btn-ghost" style={{ fontSize: 12, padding: '5px 11px', marginTop: 2 }} onClick={add}><Plus size={13} /> Add threshold</button>
+      <div className="ab-table">
+        <div className="ab-table__cols ab-table__cols--bands"><span>From</span><span>To</span><span>Outcome</span><span /></div>
+        {rows.map((b, i) => (
+          <div key={i} className="ab-table__row ab-table__row--bands">
+            <input type="number" value={b.from} onChange={(e) => set(i, 'from', e.target.value)} className="ab-num" />
+            <input type="number" value={b.to} onChange={(e) => set(i, 'to', e.target.value)} className="ab-num" />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="ab-dot" style={{ background: bandTone(b.label) }} /><input className="input" value={b.label} onChange={(e) => set(i, 'label', e.target.value)} placeholder="e.g. Advance" /></div>
+            <button className="ab-iconbtn ab-iconbtn--danger" onClick={() => onChange(rows.filter((_, j) => j !== i))}><Trash2 size={13} /></button>
+          </div>
+        ))}
+      </div>
+      <button className="ab-link" style={{ marginTop: 6 }} onClick={add}><Plus size={13} /> Add a band</button>
     </div>
   );
 }
@@ -654,7 +662,7 @@ const newQ = (type = 'short') => {
   return { ...base, answer: '' };
 };
 
-function QuestionEditor({ questions, onChange, moduleKey, moduleName, defaultSkill }) {
+function QuestionEditor({ n, questions, onChange, moduleKey, moduleName, defaultSkill }) {
   const [busy, setBusy] = useState(false);
   const sel = { padding: '5px 8px', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit', background: '#fff' };
   const ta = { width: '100%', minHeight: 50, border: '1px solid #E2E8F0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', lineHeight: 1.5 };
@@ -671,15 +679,8 @@ function QuestionEditor({ questions, onChange, moduleKey, moduleName, defaultSki
   };
 
   return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <label className="field-label" style={{ margin: 0 }}>Questions <span style={{ color: '#9CA3AF', fontWeight: 400 }}>({questions.length}) — write your own or generate, then edit</span></label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn-ghost" style={{ padding: '5px 11px', fontSize: 12 }} onClick={add}><Plus size={13} /> Add question</button>
-          <button className="copilot" onClick={genAI} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {busy ? 'Generating…' : 'AI: generate'}</button>
-        </div>
-      </div>
-      {questions.length === 0 && <div className="hint" style={{ marginBottom: 12 }}>No questions yet — add your own (any type) or let AI draft a few. Leave empty to let AI generate at run-time.</div>}
+    <Section n={n} title={<>Questions <span className="ab-muted" style={{ fontWeight: 500 }}>{questions.length}</span></>} sub="Write your own or draft with AI. Leave empty and AI generates at run time."
+      action={<div className="ab-sec__actions"><button className="btn-ghost ab-btn-sm" onClick={add}><Plus size={13} /> Add</button><button className="ab-ai" onClick={genAI} disabled={busy}>{busy ? <Loader2 size={13} className="spin" /> : <Sparkles size={13} />} {busy ? 'Drafting…' : 'Draft with AI'}</button></div>}>
       {questions.map((q, i) => {
         const set = (patch) => setQ(q.id, patch);
         return (
@@ -749,7 +750,7 @@ function QuestionEditor({ questions, onChange, moduleKey, moduleName, defaultSki
           </div>
         );
       })}
-    </>
+    </Section>
   );
 }
 const lbl = { fontSize: 11.5, fontWeight: 600, color: '#374151', marginBottom: 5 };
