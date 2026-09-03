@@ -58,7 +58,7 @@ gcloud run deploy "$SERVICE" --image "${IMAGE}:latest" --region "$REGION" --proj
   --memory 256Mi --cpu 1 --min-instances 0 --max-instances 3 --concurrency 200 --quiet
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT" --format 'value(status.url)')"
-probe() { curl -sS -o /dev/null --max-time 30 -w '%{http_code}' "${URL}/healthz" || echo 000; }
+probe() { curl -sS -o /dev/null --max-time 30 -w '%{http_code}' "${URL}/" || echo 000; }
 code="$(probe)"
 if [[ "$code" != "200" ]]; then
   echo "  public access not active yet (HTTP ${code}) — an org policy may block allUsers; switching off the invoker IAM check"
@@ -66,7 +66,7 @@ if [[ "$code" != "200" ]]; then
   sleep 5; code="$(probe)"
 fi
 if [[ "$code" != "200" ]]; then
-  echo "! ${URL}/healthz returned HTTP ${code}. The service is deployed but not publicly reachable."
+  echo "! ${URL}/ returned HTTP ${code}. The service is deployed but not publicly reachable."
   echo "  Most likely cause: org policy iam.allowedPolicyMemberDomains (Domain Restricted Sharing). An Org Policy Administrator must allow allUsers on project ${PROJECT}."
   exit 1
 fi
