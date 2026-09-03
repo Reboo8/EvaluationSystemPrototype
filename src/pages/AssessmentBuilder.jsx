@@ -134,15 +134,15 @@ export default function AssessmentBuilder() {
         <span style={{ color: '#056FD4', fontWeight: 600, cursor: 'pointer' }} onClick={() => nav('/opportunities/' + id)}>{opp.title}</span> › Configure Assessment
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 9 }}>
-            Configure Assessment
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
+        <div style={{ flex: '1 1 360px', minWidth: 0 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+            <span style={{ whiteSpace: 'nowrap' }}>Configure Assessment</span>
             <span className="badge" style={{ background: '#F3F4F6', color: '#6B7280' }}>Version {opp.assessment?.version || 'v1'}</span>
           </div>
-          <div style={{ fontSize: 13, color: '#6B7280', marginTop: 2 }}>Compose modules, set per-module rubrics &amp; thresholds, and the rank weights. Saving creates a new version.</div>
+          <div style={{ fontSize: 13, color: '#6B7280', marginTop: 2, maxWidth: 560 }}>Compose modules, set rubrics and thresholds, and the rank weights. Saving creates a new version.</div>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
           <span className="chip" style={{ background: totalW === 100 ? '#ECFDF5' : '#FEF2F2', color: totalW === 100 ? '#16A34A' : '#DC2626' }}>{modules.length} modules · weights {totalW}%</span>
           <span className="chip" style={{ background: '#F8FAFF', color: '#056FD4', border: '1px solid #E0EDFF' }}><Coins size={12} /> {fmtCr(perCandidate)} / candidate{costDelta !== 0 && <b style={{ color: costDelta > 0 ? '#B45309' : '#15803D', marginLeft: 4 }}>{costDelta > 0 ? '+' : ''}{costDelta}</b>}</span>
           <button className="btn-ghost" onClick={() => setShowSaveTpl(true)}><Sparkles size={14} /> Save as Template</button>

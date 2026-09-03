@@ -123,3 +123,6 @@ tr.row:hover td { background: #F8FAFF; cursor: pointer; }
 .sb-collapsed .nav-item { justify-content: center; padding: 11px 0; border-radius: 10px; }
 .sb-collapsed .sb-footer { justify-content: center; padding: 0; }
 .sb-collapsed .sb-divider { margin: 14px 2px; }
+
+/* Controls and pills never wrap their label */
+.btn-primary, .btn-ghost, .btn-danger, .chip, .badge { white-space: nowrap; }
