@@ -60,7 +60,7 @@ function CodeBlock({ code, id, copied, onCopy }) {
 }
 
 export default function Profile() {
-  const { currentClient, clientTeam, inviteTeammate } = useApp();
+  const { currentClient, clientTeam, inviteTeammate, resetWorkspace } = useApp();
   const cc = currentClient || {};
   const [company, setCompany] = useState({ companyName: cc.name || 'Northstar Group', industry: cc.industry || 'Technology & Services', website: cc.website ? (/^https?:/.test(cc.website) ? cc.website : 'https://' + cc.website) : 'https://northstargroup.com' });
   const [contact, setContact] = useState({ fullName: cc.owner?.name || 'Northstar Admin', email: cc.owner?.email || 'hr@northstargroup.com', phone: cc.owner?.phone || '+91 98765 43210' });
@@ -174,6 +174,13 @@ export default function Profile() {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
           {CLIENT_ROLES.map((r) => <span key={r.id} style={{ fontSize: 11.5, color: '#9CA3AF', display: 'inline-flex', alignItems: 'center', gap: 6 }}><RoleChip role={r.id} small /> {r.desc}</span>)}
         </div>
+      </div>
+
+      {/* Workspace data */}
+      <div className="card" style={{ padding: '22px 24px' }}>
+        <h2 style={{ fontSize: 14.5, fontWeight: 700, margin: '0 0 6px', color: '#1E293B' }}>Workspace data</h2>
+        <p style={{ fontSize: 12.5, color: '#64748B', margin: '0 0 14px', lineHeight: 1.6 }}>Roles, assessment configuration, links, candidates and credit activity you create here are saved in this browser, so a refresh never loses work. Reset to start again from the demo data.</p>
+        <button onClick={() => { if (window.confirm('Reset this workspace to the demo data? Everything created in this browser will be removed.')) resetWorkspace(); }} style={{ background: '#fff', border: '1px solid #FCA5A5', color: '#B91C1C', borderRadius: 8, padding: '7px 13px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Reset workspace data</button>
       </div>
 
       {/* Security */}

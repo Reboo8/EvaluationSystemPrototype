@@ -789,6 +789,16 @@ export const ROLE_CATALOG = [
 /* ──────────────────────────── saved assessment templates (persisted) ──────────────────────────── */
 const TPL_KEY = 'cuba_assessment_templates';
 const INV_KEY = 'cuba_invites';
+/* Workspace persistence: everything a client creates (roles, config, links, candidates, credits, activity) lives in
+   this browser's localStorage so a refresh never loses work. The schema stamp lets us discard stale shapes safely. */
+const SCHEMA_KEY = 'cuba_schema'; const SCHEMA = '1';
+const OPP_KEY = 'cuba_opportunities', CM_KEY = 'cuba_custom_modules', CLI_KEY = 'cuba_clients', LED_KEY = 'cuba_ledger', PAY_KEY = 'cuba_payments', AUD_KEY = 'cuba_audit', OVR_KEY = 'cuba_overrides', NOTIF_KEY = 'cuba_notifications';
+try {
+  if (localStorage.getItem(SCHEMA_KEY) !== SCHEMA) { [OPP_KEY, CM_KEY, CLI_KEY, LED_KEY, PAY_KEY, AUD_KEY, OVR_KEY, NOTIF_KEY].forEach((k) => localStorage.removeItem(k)); localStorage.setItem(SCHEMA_KEY, SCHEMA); }
+} catch { /* storage unavailable — run in memory */ }
+const loadList = (key, seed) => { try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : seed; } catch { return seed; } };
+const saveJson = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* ignore */ } };
+export const resetWorkspace = () => { try { Object.keys(localStorage).filter((k) => k.startsWith('cuba_')).forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ } window.location.reload(); };
 const POOL_KEY = 'cuba_pool'; const CAND_KEY = 'cuba_candidates';
 const loadMap = (key, seed) => { try { const v = JSON.parse(localStorage.getItem(key)); return v && typeof v === 'object' && !Array.isArray(v) ? v : seed; } catch { return seed; } };
 const _roleAsmt = (catId, roleId) => { const c = ROLE_CATALOG.find((x) => x.id === catId); const r = c && c.roles.find((x) => x.id === roleId); return r ? r.assessment : { modules: [], weights: [] }; };
@@ -801,12 +811,14 @@ const SEED_TEMPLATES = [
 /* ═══════════════════════════════ PROVIDER ═══════════════════════════════ */
 export function AppProvider({ children }) {
   /* ── client-side product state (unchanged) ── */
-  const [opportunities, setOpportunities] = useState(SEED_OPPS);
+  const [opportunities, setOpportunities] = useState(() => { const o = loadList(OPP_KEY, SEED_OPPS); nextOppId = Math.max(nextOppId, ...o.map((x) => parseInt(x.id, 10) || 0)); return o; });
+  useEffect(() => saveJson(OPP_KEY, opportunities), [opportunities]);
   const [candidates, setCandidates] = useState(() => loadMap(CAND_KEY, SEED_CANDIDATES));
   useEffect(() => { try { localStorage.setItem(CAND_KEY, JSON.stringify(candidates)); } catch { /* ignore */ } }, [candidates]);
   const [pool, setPool] = useState(() => loadMap(POOL_KEY, SEED_POOL));
   useEffect(() => { try { localStorage.setItem(POOL_KEY, JSON.stringify(pool)); } catch { /* ignore */ } }, [pool]);
-  const [customModules, setCustomModules] = useState([]);
+  const [customModules, setCustomModules] = useState(() => loadList(CM_KEY, []));
+  useEffect(() => saveJson(CM_KEY, customModules), [customModules]);
   const [assessmentTemplates, setAssessmentTemplates] = useState(() => { try { const s = JSON.parse(localStorage.getItem(TPL_KEY)); return Array.isArray(s) && s.length ? s : SEED_TEMPLATES; } catch { return SEED_TEMPLATES; } });
   useEffect(() => { try { localStorage.setItem(TPL_KEY, JSON.stringify(assessmentTemplates)); } catch { /* ignore */ } }, [assessmentTemplates]);
   /* candidate invites persist so an assessment link survives a refresh (resumable) — everything else in the store is in-memory */
@@ -814,20 +826,26 @@ export function AppProvider({ children }) {
   useEffect(() => { try { localStorage.setItem(INV_KEY, JSON.stringify(invites)); } catch { /* ignore */ } }, [invites]);
 
   /* ── admin / operator state ── */
-  const [clients, setClients] = useState(SEED_CLIENTS);
-  const [ledger, setLedger] = useState(SEED_LEDGER);
-  const [payments, setPayments] = useState(SEED_PAYMENTS);
+  const [clients, setClients] = useState(() => loadList(CLI_KEY, SEED_CLIENTS));
+  useEffect(() => saveJson(CLI_KEY, clients), [clients]);
+  const [ledger, setLedger] = useState(() => loadList(LED_KEY, SEED_LEDGER));
+  useEffect(() => saveJson(LED_KEY, ledger), [ledger]);
+  const [payments, setPayments] = useState(() => loadList(PAY_KEY, SEED_PAYMENTS));
+  useEffect(() => saveJson(PAY_KEY, payments), [payments]);
   const [rateCard, setRateCard] = useState(SEED_RATE_CARD);
   const [failedJobs, setFailedJobs] = useState(SEED_JOBS);
   const [tickets, setTickets] = useState(SEED_TICKETS);
   const [modules, setModules] = useState(SEED_MODULES);
   const [integrations, setIntegrations] = useState(SEED_INTEGRATIONS);
-  const [auditLog, setAuditLog] = useState(SEED_AUDIT);
+  const [auditLog, setAuditLog] = useState(() => loadList(AUD_KEY, SEED_AUDIT));
+  useEffect(() => saveJson(AUD_KEY, auditLog), [auditLog]);
   const [dataRequests, setDataRequests] = useState(SEED_DATA_REQUESTS);
   const [consentVersions] = useState(SEED_CONSENT);
-  const [overrides, setOverrides] = useState(SEED_OVERRIDES);
+  const [overrides, setOverrides] = useState(() => loadList(OVR_KEY, SEED_OVERRIDES));
+  useEffect(() => saveJson(OVR_KEY, overrides), [overrides]);
   const [fairness] = useState(SEED_FAIRNESS);
-  const [notifications, setNotifications] = useState(SEED_NOTIFS);
+  const [notifications, setNotifications] = useState(() => loadList(NOTIF_KEY, SEED_NOTIFS));
+  useEffect(() => saveJson(NOTIF_KEY, notifications), [notifications]);
   const [adminUsers, setAdminUsers] = useState(SEED_ADMINS);
   const [currentAdmin, setCurrentAdmin] = useState({ id: 'ad1', name: 'Rajeev Kumar', role: 'super' });
   const [settings, setSettings] = useState(SEED_SETTINGS);
@@ -1352,6 +1370,7 @@ export function AppProvider({ children }) {
 
   return (
     <AppCtx.Provider value={{
+      resetWorkspace,
       /* client-side product */
       opportunities, clientOpportunities, addOpportunity, getOpportunity, getCandidates, getPool, rescue, recordCandidateResult, addToPool, updateAssessment, setOppStatus, sendAssessment, customModules, addCustomModule,
       assessmentTemplates, saveTemplate, deleteTemplate,
