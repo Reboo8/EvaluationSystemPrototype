@@ -789,6 +789,8 @@ export const ROLE_CATALOG = [
 /* ──────────────────────────── saved assessment templates (persisted) ──────────────────────────── */
 const TPL_KEY = 'cuba_assessment_templates';
 const INV_KEY = 'cuba_invites';
+const POOL_KEY = 'cuba_pool'; const CAND_KEY = 'cuba_candidates';
+const loadMap = (key, seed) => { try { const v = JSON.parse(localStorage.getItem(key)); return v && typeof v === 'object' && !Array.isArray(v) ? v : seed; } catch { return seed; } };
 const _roleAsmt = (catId, roleId) => { const c = ROLE_CATALOG.find((x) => x.id === catId); const r = c && c.roles.find((x) => x.id === roleId); return r ? r.assessment : { modules: [], weights: [] }; };
 const SEED_TEMPLATES = [
   { id: 'tpl_seed_swe', name: 'Software Developer — standard', createdAt: 'Built-in', ..._roleAsmt('it', 'swe') },
@@ -800,8 +802,10 @@ const SEED_TEMPLATES = [
 export function AppProvider({ children }) {
   /* ── client-side product state (unchanged) ── */
   const [opportunities, setOpportunities] = useState(SEED_OPPS);
-  const [candidates, setCandidates] = useState(SEED_CANDIDATES);
-  const [pool, setPool] = useState(SEED_POOL);
+  const [candidates, setCandidates] = useState(() => loadMap(CAND_KEY, SEED_CANDIDATES));
+  useEffect(() => { try { localStorage.setItem(CAND_KEY, JSON.stringify(candidates)); } catch { /* ignore */ } }, [candidates]);
+  const [pool, setPool] = useState(() => loadMap(POOL_KEY, SEED_POOL));
+  useEffect(() => { try { localStorage.setItem(POOL_KEY, JSON.stringify(pool)); } catch { /* ignore */ } }, [pool]);
   const [customModules, setCustomModules] = useState([]);
   const [assessmentTemplates, setAssessmentTemplates] = useState(() => { try { const s = JSON.parse(localStorage.getItem(TPL_KEY)); return Array.isArray(s) && s.length ? s : SEED_TEMPLATES; } catch { return SEED_TEMPLATES; } });
   useEffect(() => { try { localStorage.setItem(TPL_KEY, JSON.stringify(assessmentTemplates)); } catch { /* ignore */ } }, [assessmentTemplates]);
@@ -1174,7 +1178,35 @@ export function AppProvider({ children }) {
   };
   const getOpportunity = (id) => opportunities.find((o) => o.id === id);
   const getCandidates = (id) => candidates[id] || [];
-  const getPool = (id) => pool[id] || [];
+  /* The pool is every person who entered the funnel for this role: resume-gate rows (from send / careers / sourcing)
+     plus anyone who holds an assessment link the gate rows don't cover (rescues, retakes, renewed links).
+     Each row carries the LATEST invite for that person, so the assessment status shown is never stale. */
+  const getPool = (id) => {
+    const invs = Object.values(invites).filter((i) => i.oppId === id && i.source !== 'preview' && i.status !== 'RENEWED').sort((a, b) => b.createdAt - a.createdAt);
+    /* One person can hold several links (re-sent, rescued, retake). Show the one that says the most:
+       the most advanced status wins (Submitted > In progress > Opened > Sent); a newer retake/renewed link supersedes it. */
+    const W = { SUBMITTED: 4, IN_PROGRESS: 3, OPENED: 2, SENT: 1 };
+    const better = (i, best) => {
+      if (!best) return true;
+      if ((i.source === 'retake' || i.renewedFrom) && i.createdAt > best.createdAt) return true;
+      const wi = W[inviteStatusOf(i)] || 0, wb = W[inviteStatusOf(best)] || 0;
+      return wi !== wb ? wi > wb : i.createdAt > best.createdAt;
+    };
+    const byEmail = new Map(); invs.forEach((i) => { const k = (i.email || '').toLowerCase(); if (k && better(i, byEmail.get(k))) byEmail.set(k, i); });
+    const byToken = new Map(invs.map((i) => [i.token, i]));
+    const rows = (pool[id] || []).map((r) => {
+      const latest = (r.email && byEmail.get(r.email.toLowerCase())) || (r.inviteToken && byToken.get(r.inviteToken)) || null;
+      return latest ? { ...r, inviteToken: latest.token, pass: r.pass || latest.source === 'rescue', rescued: r.rescued || latest.source === 'rescue' } : r;
+    });
+    const coveredEmails = new Set(rows.map((r) => (r.email || '').toLowerCase()).filter(Boolean));
+    const coveredTokens = new Set(rows.map((r) => r.inviteToken).filter(Boolean));
+    const extra = [];
+    byEmail.forEach((i, k) => {
+      if (coveredEmails.has(k) || coveredTokens.has(i.token)) return;
+      extra.push({ id: 'inv_' + i.token, name: i.name || nameFromEmail(i.email), email: i.email, source: i.source, fit: Number(i.fit?.fit) || 0, pass: true, inviteToken: i.token, appliedAt: fmtDate(i.createdAt), rescued: i.source === 'rescue', ...(i.fit?.reason && i.source === 'rescue' ? { reason: i.fit.reason } : {}) });
+    });
+    return [...rows, ...extra];
+  };
   /* ── candidate invites: the assessment LINK is the candidate's entry (time-bound, resumable, one attempt) ── */
   const linkDays = () => Number(settings?.evaluation?.linkExpiryDays) || 7;
   const fitThresholdDefault = () => Number(settings?.evaluation?.defaultFitThreshold) || 60;

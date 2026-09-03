@@ -1,0 +1,24 @@
+# Builds the container in Cloud Build and pushes it to Artifact Registry (asia-southeast1).
+# Run via deploy/gcp.sh — or directly:
+#   gcloud builds submit --config deploy/cloudbuild.yaml --substitutions _VITE_GROQ_API_KEY=...
+substitutions:
+  _REGION: asia-southeast1
+  _REPO: cuba
+  _SERVICE: cuba-prototype
+  _VITE_GROQ_API_KEY: ''
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - VITE_GROQ_API_KEY=${_VITE_GROQ_API_KEY}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:${BUILD_ID}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:latest
+      - .
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:${BUILD_ID}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE}:latest
+options:
+  logging: CLOUD_LOGGING_ONLY

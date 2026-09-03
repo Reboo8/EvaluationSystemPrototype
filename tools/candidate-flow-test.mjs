@@ -78,4 +78,13 @@ await step('interview', async () => {
   await b.click('Finish', 'button'); await b.sleep(400); await b.shot('n20-done', false);
 });
 await step('rank list + report', async () => { await b.goto('/opportunities/1/rank'); await b.shot('n21-rank'); const t = await b.text('body'); log('  new row:', /\bnew\b/.test(t)); });
+await step('candidate pool', async () => {
+  await b.goto('/opportunities/1/pool'); await b.sleep(700); await b.shot('n22-pool');
+  const t = await b.text('body');
+    log('  pool header:', t.match(/\d+ in the funnel[^\n]*/)?.[0] || 'none');
+  log('  has candidate email:', /meera\.iyer|arjun\.nair/.test(t), '| outcome badge:', /Needs review|Cleared|Not cleared/.test(t), '| View report:', /View report/.test(t));
+  if (!/meera\.iyer|arjun\.nair/.test(t)) throw new Error('assessed candidate missing from pool');
+  await b.click('View report', 'button'); await b.sleep(600); await b.shot('n23-pool-report', false);
+  log('  report opened:', /Candidate report|Provenance|Rank/.test(await b.text('body')));
+});
 await b.close(); console.log('DONE');

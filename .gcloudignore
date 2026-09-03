@@ -1,0 +1,10 @@
+# Uploaded to Cloud Build for `gcloud builds submit` — keep secrets and junk out.
+.git
+.gitignore
+node_modules
+dist
+.env
+.env.*
+tools/shots
+*.log
+.DS_Store
